@@ -1,0 +1,64 @@
+services:
+  platform-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+    ports:
+      - "55431:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - platform_data:/var/lib/postgresql/data
+
+  lab-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: lab_admin
+      POSTGRES_PASSWORD: lab_admin
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab_admin -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - lab_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    environment:
+      PLATFORM_DATABASE_URL: postgresql+asyncpg://platform:platform@platform-db:5432/platform
+      LAB_ADMIN_HOST: lab-db
+      LAB_PUBLIC_HOST: localhost
+      LAB_ADMIN_PORT: "5432"
+      LAB_PUBLIC_PORT: "55432"
+      LAB_ADMIN_USER: lab_admin
+      LAB_ADMIN_PASSWORD: lab_admin
+      FRONTEND_ORIGIN: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      lab-db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  platform_data:
+  lab_data:
