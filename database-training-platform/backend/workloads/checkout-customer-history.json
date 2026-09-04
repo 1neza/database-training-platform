@@ -1,0 +1,8 @@
+{
+  "slug": "checkout-customer-history",
+  "version": "1.0.0",
+  "description": "Customer order-history lookup used by checkout and support flows.",
+  "statements": {
+    "recent_orders": "SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20"
+  }
+}
