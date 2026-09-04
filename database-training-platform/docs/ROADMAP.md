@@ -20,10 +20,10 @@
 - [x] Deadlock
 - [x] Long-running transaction without row-lock incident
 - [ ] Disk pressure
-- [ ] Table bloat / VACUUM
-- [ ] Failed deployment migration
-- [ ] Roles / privileges
-- [ ] Backup and restore
+- [x] Table bloat / VACUUM
+- [x] Failed deployment migration
+- [x] Roles / privileges
+- [x] Backup and restore
 - [ ] Replica lag
 - [ ] Failover
 
@@ -33,6 +33,10 @@ Implemented labs:
 3. Connection Pool Exhaustion — difficulty 3/5
 4. Deadlocking Transfer Procedures — difficulty 4/5
 5. Stale Reporting Transaction — difficulty 2/5
+6. Excessive Analytics Privileges — difficulty 3/5
+7. Failed Deployment Migration — difficulty 3/5
+8. Table Bloat and VACUUM — difficulty 3/5
+9. Logical Backup Restore — difficulty 3/5
 
 ## Phase 2.5 — Scenario authoring engine
 - [x] Scenario-agnostic API routing
