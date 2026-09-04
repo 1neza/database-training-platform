@@ -1,21 +1,24 @@
 # Product Roadmap
 
 ## Phase 1 — PostgreSQL DBA MVP
-- [x] Scenario catalogue
-- [x] Timed session
-- [x] Dedicated database + login per learner session
-- [x] Synthetic e-commerce dataset
-- [x] Slow-query scenario
+- [x] Scenario catalog
+- [x] Timed sessions
+- [x] Dedicated database + learner login per session
+- [x] Synthetic datasets
+- [x] Slow-query / indexing scenario
 - [x] Deterministic evaluator
+- [x] Declarative grading checks
 - [x] Hints
-- [x] Basic scorecard
-- [x] Web UI
+- [x] 100-point scorecard
+- [x] Selectable learner scenario UI
+- [x] Lab teardown and return-to-catalog flow
+- [x] GitHub Actions with real PostgreSQL integration tests
 
 ## Phase 2 — Real DBA incidents
-- [ ] Lock contention
+- [x] Lock contention / stale transaction
+- [x] Connection-pool exhaustion
 - [ ] Deadlock
-- [ ] Long-running transaction
-- [ ] Connection exhaustion
+- [ ] Long-running transaction without row-lock incident
 - [ ] Disk pressure
 - [ ] Table bloat / VACUUM
 - [ ] Failed deployment migration
@@ -24,7 +27,20 @@
 - [ ] Replica lag
 - [ ] Failover
 
+## Phase 2.5 — Scenario authoring engine
+- [x] Scenario-agnostic API routing
+- [x] Provisioner registry
+- [x] Declarative evaluation engine
+- [x] Catalog validation at application startup
+- [ ] Declarative schema/data setup primitives
+- [ ] Reusable fault-injection primitives
+- [ ] Scenario definitions loaded from YAML/JSON files
+- [ ] Scenario authoring validation CLI
+- [ ] Scenario versioning
+- [ ] Scenario reset/replay
+
 ## Phase 3 — Learning engine
+- [ ] User accounts and persistent progress
 - [ ] Skill graph
 - [ ] Prerequisites
 - [ ] Adaptive difficulty
@@ -32,6 +48,7 @@
 - [ ] Spaced repetition
 - [ ] Personalized weak-area drills
 - [ ] Progress history
+- [ ] Evidence / portfolio report per completed lab
 
 ## Phase 4 — AI layer
 - [ ] AI engineering manager
@@ -41,6 +58,8 @@
 - [ ] Natural-language scenario authoring
 - [ ] Generated synthetic schema/data configuration
 
+AI should assist with teaching, role-play and explanation. Deterministic infrastructure checks remain the primary technical grading mechanism.
+
 ## Phase 5 — Data engineering
 - [ ] Kafka
 - [ ] Debezium CDC
@@ -49,21 +68,24 @@
 - [ ] Consumer lag
 - [ ] Schema evolution
 - [ ] Broken pipelines
+- [ ] Warehouse / analytics incidents
 
 ## Phase 6 — Production isolation
 - [ ] Container per lab
-- [ ] Kubernetes namespace per session
+- [ ] Kubernetes namespace or equivalent isolation per session
 - [ ] CPU/memory quotas
 - [ ] Network policies
-- [ ] Automatic teardown
+- [ ] Automatic expiry and teardown
 - [ ] Secret vault
 - [ ] Audit logs
+- [ ] Lab snapshot / fast reset
 
 ## Phase 7 — B2B
 - [ ] Company-defined scenarios
 - [ ] Sanitized internal datasets
 - [ ] Team dashboards
-- [ ] Interview mode
+- [ ] Onboarding tracks
+- [ ] Interview / assessment mode
 - [ ] Candidate reports
 - [ ] SSO
 - [ ] LMS integration
