@@ -28,11 +28,11 @@
 - [ ] Failover
 
 Implemented labs:
-1. Slow Checkout Query
-2. Blocked Payment Transaction
-3. Connection Pool Exhaustion
-4. Deadlocking Transfer Procedures
-5. Stale Reporting Transaction
+1. Slow Checkout Query — difficulty 2/5
+2. Blocked Payment Transaction — difficulty 3/5
+3. Connection Pool Exhaustion — difficulty 3/5
+4. Deadlocking Transfer Procedures — difficulty 4/5
+5. Stale Reporting Transaction — difficulty 2/5
 
 ## Phase 2.5 — Scenario authoring engine
 - [x] Scenario-agnostic API routing
@@ -49,13 +49,16 @@ Implemented labs:
 - [x] Attempt finish/replay lifecycle
 - [x] Named reusable dataset templates
 - [x] Named workload templates
+- [x] Validated scenario skill/prerequisite metadata
+- [x] Validated scenario difficulty metadata (1–5)
 
 Current scenario authoring flow:
 1. Add or edit `backend/scenarios/<slug>.json`.
-2. Reference versioned assets from `backend/datasets/` and `backend/workloads/` when appropriate.
-3. Bump the scenario semantic version when its behavior/definition changes.
-4. Run `python -m app.validate_scenarios`.
-5. CI repeats validation, compiles the backend and runs the real PostgreSQL integration suite.
+2. Declare skills, prerequisite skills and difficulty.
+3. Reference versioned assets from `backend/datasets/` and `backend/workloads/` when appropriate.
+4. Bump the scenario semantic version when its behavior/learning semantics change.
+5. Run `python -m app.validate_scenarios`.
+6. CI repeats validation, compiles the backend and runs the real PostgreSQL integration suite.
 
 Current reusable fault primitives:
 - persistent idle transaction / row lock
@@ -76,16 +79,35 @@ Current reusable assets:
 - workload: `checkout-customer-history@1.0.0`
 
 ## Phase 3 — Learning engine
-- [ ] Learner identity / user accounts
-- [ ] Persistent attempt history UI/API
-- [ ] Progress summary per scenario/skill
-- [ ] Skill graph
-- [ ] Prerequisites
-- [ ] Adaptive difficulty
-- [ ] Scenario recommendations
-- [ ] Spaced repetition
-- [ ] Personalized weak-area drills
-- [ ] Evidence / portfolio report per completed lab
+- [x] Lightweight durable learner profile / browser identity
+- [ ] Authenticated user accounts and account recovery
+- [x] Persistent attempt history UI/API
+- [x] Progress summary per scenario
+- [x] Skill mastery summary
+- [x] Skill graph
+- [x] Prerequisites and locked/ready/completed states
+- [x] API-level prerequisite enforcement for identified learners
+- [x] Deterministic scenario recommendations
+- [x] Weak-skill detection and retry prioritization
+- [x] Adaptive difficulty targeting
+- [x] Spaced repetition / review-due scheduling
+- [x] Deterministic portfolio/evidence generation engine
+- [ ] Learner-facing portfolio API/UI/export
+- [ ] Dedicated weak-area drill scenarios / generated drills
+
+Current recommendation priorities are deterministic and explainable:
+1. unresolved failed attempts
+2. weak-skill practice
+3. overdue spaced-repetition reviews
+4. scenarios close to the learner's target difficulty
+5. untouched ready scenarios
+
+Current adaptive difficulty scale:
+- 1/5 — future onboarding/fundamentals
+- 2/5 — foundational production incidents
+- 3/5 — intermediate operational incidents
+- 4/5 — advanced concurrency/reliability incidents
+- 5/5 — future failover/DR/high-complexity incidents
 
 ## Phase 4 — AI layer
 - [ ] AI engineering manager
