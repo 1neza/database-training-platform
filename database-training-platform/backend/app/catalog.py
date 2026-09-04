@@ -41,6 +41,10 @@ SCENARIOS = {
             "The application frequently filters by customer_id and asks for the newest orders.",
             "A useful index can serve both filtering and ordering when its column order matches the query.",
         ],
+        "runtime": {
+            "provisioner": "slow_checkout",
+            "evaluator": "slow_checkout",
+        },
     },
     "blocked-payment-transaction": {
         "slug": "blocked-payment-transaction",
@@ -64,5 +68,9 @@ SCENARIOS = {
             "Look for a session that is idle in transaction and has been open much longer than expected.",
             "This lab grants the learner permission to signal backends inside the isolated training server.",
         ],
+        "runtime": {
+            "provisioner": "blocked_payment",
+            "evaluator": "blocked_payment",
+        },
     },
 }
