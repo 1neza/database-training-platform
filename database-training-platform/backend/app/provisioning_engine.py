@@ -49,10 +49,9 @@ def validate_provisioning_spec(spec: dict) -> None:
     learner = spec.get("learner", {})
     if not isinstance(learner, dict):
         raise ProvisioningConfigurationError("learner provisioning config must be an object")
-    for key in ("statements",):
-        statements = learner.get(key, [])
-        if not isinstance(statements, list) or any(not isinstance(sql, str) for sql in statements):
-            raise ProvisioningConfigurationError(f"learner.{key} must be a list of SQL strings")
+    statements = learner.get("statements", [])
+    if not isinstance(statements, list) or any(not isinstance(sql, str) for sql in statements):
+        raise ProvisioningConfigurationError("learner.statements must be a list of SQL strings")
 
     aliases: set[str] = set()
     roles = spec.get("roles", [])
@@ -62,7 +61,7 @@ def validate_provisioning_spec(spec: dict) -> None:
         if not isinstance(role, dict):
             raise ProvisioningConfigurationError("Each role config must be an object")
         alias = _safe_identifier(role.get("alias"), "role alias")
-        prefix = _safe_identifier(role.get("prefix"), "role prefix")
+        _safe_identifier(role.get("prefix"), "role prefix")
         if alias in aliases:
             raise ProvisioningConfigurationError(f"Duplicate role alias: {alias}")
         aliases.add(alias)
@@ -89,12 +88,12 @@ def validate_provisioning_spec(spec: dict) -> None:
             if not isinstance(count, int) or count <= 0:
                 raise ProvisioningConfigurationError("connection_pool requires positive count")
         if fault_type == "idle_transaction_lock":
-            statements = fault.get("statements")
-            if not isinstance(statements, list) or not statements:
+            fault_statements = fault.get("statements")
+            if not isinstance(fault_statements, list) or not fault_statements:
                 raise ProvisioningConfigurationError("idle_transaction_lock requires statements")
         if fault_type == "concurrent_deadlock_probe":
-            statements = fault.get("statements")
-            if not isinstance(statements, list) or len(statements) != 2:
+            fault_statements = fault.get("statements")
+            if not isinstance(fault_statements, list) or len(fault_statements) != 2:
                 raise ProvisioningConfigurationError(
                     "concurrent_deadlock_probe requires exactly two statements"
                 )
@@ -191,7 +190,6 @@ async def _inject_deadlock_probe(
                 "SELECT set_config('application_name', $1, false)",
                 f"{fault.get('application_name', 'deadlock-worker')}-{index}",
             )
-            await conn.execute("SET deadlock_timeout = '100ms'")
 
         results = await asyncio.gather(
             connections[0].execute(fault["statements"][0]),
