@@ -68,7 +68,7 @@ def build_portfolio(attempts: list[TrainingSession]) -> dict:
                 else None
             ) or scenario.get("version", "0.0.0"),
             "score": attempt.score,
-            "completed_at": attempt.started_at,
+            "attempted_at": attempt.started_at,
             "skills": [
                 {
                     "slug": slug,
@@ -88,7 +88,7 @@ def build_portfolio(attempts: list[TrainingSession]) -> dict:
         })
 
     evidence.sort(
-        key=lambda item: item["completed_at"] or datetime.min,
+        key=lambda item: item["attempted_at"] or datetime.min,
         reverse=True,
     )
 
