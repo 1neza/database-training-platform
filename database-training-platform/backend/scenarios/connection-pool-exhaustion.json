@@ -1,9 +1,10 @@
 {
   "slug": "connection-pool-exhaustion",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "track_slug": "postgresql-dba",
   "title": "Connection Pool Exhaustion",
   "level": "intermediate",
+  "difficulty": 3,
   "skills": ["postgresql.connection-management", "postgresql.activity-monitoring", "postgresql.safe-operations"],
   "prerequisites": ["postgresql.activity-monitoring"],
   "duration_minutes": 30,
