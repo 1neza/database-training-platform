@@ -4,6 +4,7 @@ from .catalog import SCENARIOS, TRACKS
 from .evaluation_engine import evaluate_checks, validate_evaluation_spec
 from .lab import LabCredentials
 from .provisioning_engine import provision_from_spec, validate_provisioning_spec
+from .skill_catalog import SKILLS
 
 
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
@@ -21,15 +22,26 @@ def _require_nonempty_string(scenario_slug: str, scenario: dict, field: str) -> 
         )
 
 
-def _require_string_list(scenario_slug: str, scenario: dict, field: str) -> None:
+def _require_string_list(
+    scenario_slug: str,
+    scenario: dict,
+    field: str,
+    *,
+    allow_empty: bool = False,
+) -> None:
     value = scenario.get(field)
-    if not isinstance(value, list) or not value:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        requirement = "a list" if allow_empty else "a non-empty list"
         raise ScenarioConfigurationError(
-            f"Scenario {scenario_slug!r} requires a non-empty {field!r} list"
+            f"Scenario {scenario_slug!r} requires {requirement} for {field!r}"
         )
     if any(not isinstance(item, str) or not item.strip() for item in value):
         raise ScenarioConfigurationError(
             f"Scenario {scenario_slug!r} {field!r} entries must be non-empty strings"
+        )
+    if len(set(value)) != len(value):
+        raise ScenarioConfigurationError(
+            f"Scenario {scenario_slug!r} {field!r} must not contain duplicates"
         )
 
 
@@ -55,12 +67,36 @@ def validate_scenario_metadata(scenario_slug: str, scenario: dict) -> None:
 
     _require_string_list(scenario_slug, scenario, "objectives")
     _require_string_list(scenario_slug, scenario, "hints")
+    _require_string_list(scenario_slug, scenario, "skills")
+    _require_string_list(scenario_slug, scenario, "prerequisites", allow_empty=True)
 
     track_slugs = {track["slug"] for track in TRACKS}
     if scenario["track_slug"] not in track_slugs:
         raise ScenarioConfigurationError(
             f"Scenario {scenario_slug!r} references unknown track {scenario['track_slug']!r}"
         )
+
+    for skill_slug in scenario["skills"]:
+        skill = SKILLS.get(skill_slug)
+        if skill is None:
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} references unknown skill {skill_slug!r}"
+            )
+        if skill["track_slug"] != scenario["track_slug"]:
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} skill {skill_slug!r} belongs to another track"
+            )
+
+    for prerequisite in scenario["prerequisites"]:
+        skill = SKILLS.get(prerequisite)
+        if skill is None:
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} references unknown prerequisite skill {prerequisite!r}"
+            )
+        if skill["track_slug"] != scenario["track_slug"]:
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} prerequisite {prerequisite!r} belongs to another track"
+            )
 
 
 def get_scenario_definition(scenario_slug: str) -> dict:
