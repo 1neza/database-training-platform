@@ -80,14 +80,17 @@ async def provision_scenario(scenario_slug: str, session_short_id: str) -> LabCr
     return await provision_from_spec(session_short_id, provisioning)
 
 
-async def evaluate_scenario(scenario_slug: str, database: str) -> dict:
-    scenario = get_scenario_definition(scenario_slug)
+async def evaluate_scenario_definition(scenario: dict, database: str) -> dict:
     evaluation = scenario.get("evaluation")
     if not isinstance(evaluation, dict):
         raise ScenarioConfigurationError(
-            f"Scenario {scenario_slug!r} is missing an evaluation configuration"
+            f"Scenario {scenario.get('slug', '<snapshot>')!r} is missing an evaluation configuration"
         )
     return await evaluate_checks(database, evaluation)
+
+
+async def evaluate_scenario(scenario_slug: str, database: str) -> dict:
+    return await evaluate_scenario_definition(get_scenario_definition(scenario_slug), database)
 
 
 def validate_scenario_catalog() -> None:
