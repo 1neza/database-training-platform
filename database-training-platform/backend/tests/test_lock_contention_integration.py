@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.evaluator import evaluate_blocked_payment
 from app.lab import provision_blocked_payment, teardown_lab
+from app.scenario_engine import evaluate_scenario
 
 
 def test_blocked_payment_lab_can_be_diagnosed_and_recovered():
@@ -15,7 +15,7 @@ async def _exercise_blocked_payment_lab():
     creds = await provision_blocked_payment("ci002")
 
     try:
-        before = await evaluate_blocked_payment(creds.database)
+        before = await evaluate_scenario("blocked-payment-transaction", creds.database)
         assert before["passed"] is False
         assert before["score"] < 100
 
@@ -41,10 +41,9 @@ async def _exercise_blocked_payment_lab():
         finally:
             await learner.close()
 
-        # Give PostgreSQL a brief moment to clear the terminated backend state.
         await asyncio.sleep(0.2)
 
-        after = await evaluate_blocked_payment(creds.database)
+        after = await evaluate_scenario("blocked-payment-transaction", creds.database)
         assert after["passed"] is True
         assert after["score"] == 100
         assert all(check["passed"] for check in after["checks"])
