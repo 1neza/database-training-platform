@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,13 +11,17 @@ from .config import settings
 from .db import Base, engine, get_db
 from .lab import teardown_lab
 from .models import SessionStatus, TrainingSession
-from .scenario_engine import evaluate_scenario, provision_scenario, validate_scenario_catalog
+from .scenario_engine import (
+    evaluate_scenario_definition,
+    provision_scenario,
+    validate_scenario_catalog,
+)
 from .schemas import EvaluationOut, ScenarioOut, SessionOut, StartSessionIn, TrackOut
 
 
 app = FastAPI(
     title="Database Training Platform",
-    version="0.2.0",
+    version="0.3.0",
     description="Operate real databases under timed production scenarios.",
 )
 
@@ -31,24 +36,108 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    # Fail fast if a scenario references a provisioner/evaluator that is not
-    # registered. A broken catalogue should never reach a learner session.
     validate_scenario_catalog()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
+def _new_attempt_envelope(
+    *,
+    scenario: dict,
+    attempt_number: int,
+    session_id: uuid.UUID,
+    replay_of_session_id: uuid.UUID | None = None,
+    root_session_id: uuid.UUID | None = None,
+) -> dict:
+    return {
+        "meta": {
+            "scenario_version": scenario["version"],
+            "attempt_number": attempt_number,
+            "replay_of_session_id": str(replay_of_session_id) if replay_of_session_id else None,
+            "root_session_id": str(root_session_id or session_id),
+            "lab_active": True,
+            "ended_early": False,
+        },
+        "scenario_snapshot": copy.deepcopy(scenario),
+        "evaluation": None,
+    }
+
+
+def _attempt_meta(row: TrainingSession) -> dict:
+    envelope = row.result if isinstance(row.result, dict) else {}
+    meta = envelope.get("meta") if isinstance(envelope.get("meta"), dict) else None
+    if meta is not None:
+        return meta
+
+    scenario = SCENARIOS.get(row.scenario_slug, {})
+    return {
+        "scenario_version": scenario.get("version", "0.0.0"),
+        "attempt_number": 1,
+        "replay_of_session_id": None,
+        "root_session_id": str(row.id),
+        "lab_active": bool(row.database_password),
+        "ended_early": False,
+    }
+
+
+def _attempt_scenario(row: TrainingSession) -> dict:
+    if isinstance(row.result, dict):
+        snapshot = row.result.get("scenario_snapshot")
+        if isinstance(snapshot, dict):
+            return snapshot
+    scenario = SCENARIOS.get(row.scenario_slug)
+    if scenario is None:
+        raise HTTPException(409, "The scenario definition for this legacy attempt is unavailable")
+    return scenario
+
+
+def _evaluation_result(row: TrainingSession) -> dict | None:
+    if not isinstance(row.result, dict):
+        return None
+    if "meta" in row.result:
+        value = row.result.get("evaluation")
+        return value if isinstance(value, dict) else None
+    return row.result
+
+
+def _set_attempt_state(
+    row: TrainingSession,
+    *,
+    lab_active: bool | None = None,
+    ended_early: bool | None = None,
+    evaluation: dict | None = None,
+) -> None:
+    meta = dict(_attempt_meta(row))
+    if lab_active is not None:
+        meta["lab_active"] = lab_active
+    if ended_early is not None:
+        meta["ended_early"] = ended_early
+
+    current_evaluation = _evaluation_result(row)
+    row.result = {
+        "meta": meta,
+        "scenario_snapshot": copy.deepcopy(_attempt_scenario(row)),
+        "evaluation": evaluation if evaluation is not None else current_evaluation,
+    }
+
+
 def session_to_out(row: TrainingSession) -> SessionOut:
+    meta = _attempt_meta(row)
+    replay_of = meta.get("replay_of_session_id")
     return SessionOut(
         id=row.id,
         learner_name=row.learner_name,
         track_slug=row.track_slug,
         scenario_slug=row.scenario_slug,
+        scenario_version=meta.get("scenario_version", "0.0.0"),
+        attempt_number=int(meta.get("attempt_number", 1)),
+        replay_of_session_id=uuid.UUID(replay_of) if replay_of else None,
+        lab_active=bool(meta.get("lab_active", False)),
         status=row.status.value,
         started_at=row.started_at,
         deadline_at=row.deadline_at,
         score=row.score,
-        result=row.result,
+        result=_evaluation_result(row),
         connection={
             "host": settings.lab_public_host,
             "port": settings.lab_public_port,
@@ -58,6 +147,20 @@ def session_to_out(row: TrainingSession) -> SessionOut:
             "sslmode": "disable",
         },
     )
+
+
+async def _finish_runtime(row: TrainingSession, db: AsyncSession, *, ended_early: bool) -> None:
+    meta = _attempt_meta(row)
+    if meta.get("lab_active", False):
+        await teardown_lab(row.database_name, row.database_user)
+        row.database_password = ""
+        _set_attempt_state(row, lab_active=False, ended_early=ended_early)
+
+    if ended_early and row.status == SessionStatus.ACTIVE:
+        row.status = SessionStatus.FAILED
+
+    await db.commit()
+    await db.refresh(row)
 
 
 @app.get("/health")
@@ -101,9 +204,7 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
         raise HTTPException(404, "Scenario not found")
 
     sid = uuid.uuid4()
-    short_id = sid.hex[:10]
-    creds = await provision_scenario(payload.scenario_slug, short_id)
-
+    creds = await provision_scenario(payload.scenario_slug, sid.hex[:10])
     now = datetime.now(timezone.utc)
     row = TrainingSession(
         id=sid,
@@ -116,6 +217,11 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
         database_password=creds.password,
         started_at=now,
         deadline_at=now + timedelta(minutes=scenario["duration_minutes"]),
+        result=_new_attempt_envelope(
+            scenario=scenario,
+            attempt_number=1,
+            session_id=sid,
+        ),
     )
     db.add(row)
     await db.commit()
@@ -131,8 +237,7 @@ async def get_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
     if row.status == SessionStatus.ACTIVE and datetime.now(timezone.utc) > row.deadline_at:
         row.status = SessionStatus.EXPIRED
-        await db.commit()
-        await db.refresh(row)
+        await _finish_runtime(row, db, ended_early=False)
 
     return session_to_out(row)
 
@@ -143,13 +248,76 @@ async def evaluate(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Session not found")
 
-    result = await evaluate_scenario(row.scenario_slug, row.database_name)
+    if not _attempt_meta(row).get("lab_active", False):
+        raise HTTPException(409, "This lab runtime has already been finished")
+
+    if datetime.now(timezone.utc) > row.deadline_at:
+        row.status = SessionStatus.EXPIRED
+        await _finish_runtime(row, db, ended_early=False)
+        raise HTTPException(409, "This attempt has expired")
+
+    result = await evaluate_scenario_definition(_attempt_scenario(row), row.database_name)
 
     row.score = result["score"]
-    row.result = result
+    _set_attempt_state(row, evaluation=result)
     row.status = SessionStatus.PASSED if result["passed"] else SessionStatus.FAILED
     await db.commit()
     return result
+
+
+@app.post("/sessions/{session_id}/finish", response_model=SessionOut)
+async def finish_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    row = await db.get(TrainingSession, session_id)
+    if not row:
+        raise HTTPException(404, "Session not found")
+
+    await _finish_runtime(row, db, ended_early=row.status == SessionStatus.ACTIVE)
+    return session_to_out(row)
+
+
+@app.post("/sessions/{session_id}/replay", response_model=SessionOut)
+async def replay_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    source = await db.get(TrainingSession, session_id)
+    if not source:
+        raise HTTPException(404, "Session not found")
+
+    scenario = SCENARIOS.get(source.scenario_slug)
+    if not scenario:
+        raise HTTPException(409, "The scenario used by this attempt is no longer available")
+
+    source_meta = _attempt_meta(source)
+    if source_meta.get("lab_active", False):
+        await _finish_runtime(source, db, ended_early=source.status == SessionStatus.ACTIVE)
+        source_meta = _attempt_meta(source)
+
+    sid = uuid.uuid4()
+    creds = await provision_scenario(source.scenario_slug, sid.hex[:10])
+    now = datetime.now(timezone.utc)
+    root_id = uuid.UUID(source_meta.get("root_session_id", str(source.id)))
+
+    row = TrainingSession(
+        id=sid,
+        learner_name=source.learner_name,
+        track_slug=scenario["track_slug"],
+        scenario_slug=source.scenario_slug,
+        status=SessionStatus.ACTIVE,
+        database_name=creds.database,
+        database_user=creds.username,
+        database_password=creds.password,
+        started_at=now,
+        deadline_at=now + timedelta(minutes=scenario["duration_minutes"]),
+        result=_new_attempt_envelope(
+            scenario=scenario,
+            attempt_number=int(source_meta.get("attempt_number", 1)) + 1,
+            session_id=sid,
+            replay_of_session_id=source.id,
+            root_session_id=root_id,
+        ),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return session_to_out(row)
 
 
 @app.delete("/sessions/{session_id}")
@@ -158,7 +326,8 @@ async def delete_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if not row:
         raise HTTPException(404, "Session not found")
 
-    await teardown_lab(row.database_name, row.database_user)
+    if _attempt_meta(row).get("lab_active", False):
+        await teardown_lab(row.database_name, row.database_user)
     await db.delete(row)
     await db.commit()
     return {"deleted": True}

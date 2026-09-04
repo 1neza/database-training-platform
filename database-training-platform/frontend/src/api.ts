@@ -36,6 +36,16 @@ export const api = {
       method: "POST",
     }),
 
+  finishSession: (sessionId: string) =>
+    request<Session>(`/sessions/${sessionId}/finish`, {
+      method: "POST",
+    }),
+
+  replaySession: (sessionId: string) =>
+    request<Session>(`/sessions/${sessionId}/replay`, {
+      method: "POST",
+    }),
+
   deleteSession: (sessionId: string) =>
     request<{ deleted: boolean }>(`/sessions/${sessionId}`, {
       method: "DELETE",

@@ -12,6 +12,7 @@ class TrackOut(BaseModel):
 
 class ScenarioOut(BaseModel):
     slug: str
+    version: str
     track_slug: str
     title: str
     level: str
@@ -40,6 +41,10 @@ class SessionOut(BaseModel):
     learner_name: str
     track_slug: str
     scenario_slug: str
+    scenario_version: str
+    attempt_number: int
+    replay_of_session_id: UUID | None = None
+    lab_active: bool
     status: str
     started_at: datetime
     deadline_at: datetime

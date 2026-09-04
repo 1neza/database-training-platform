@@ -1,5 +1,6 @@
 export type Scenario = {
   slug: string;
+  version: string;
   track_slug: string;
   title: string;
   level: string;
@@ -14,6 +15,10 @@ export type Session = {
   learner_name: string;
   track_slug: string;
   scenario_slug: string;
+  scenario_version: string;
+  attempt_number: number;
+  replay_of_session_id: string | null;
+  lab_active: boolean;
   status: string;
   started_at: string;
   deadline_at: string;
