@@ -1,24 +1,22 @@
-import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .catalog import SCENARIOS, TRACKS
 from .config import settings
 from .db import Base, engine, get_db
-from .evaluator import evaluate_blocked_payment, evaluate_slow_checkout
-from .lab import provision_blocked_payment, provision_slow_checkout, teardown_lab
+from .lab import teardown_lab
 from .models import SessionStatus, TrainingSession
+from .scenario_engine import evaluate_scenario, provision_scenario, validate_scenario_catalog
 from .schemas import EvaluationOut, ScenarioOut, SessionOut, StartSessionIn, TrackOut
 
 
 app = FastAPI(
     title="Database Training Platform",
-    version="0.1.0",
+    version="0.2.0",
     description="Operate real databases under timed production scenarios.",
 )
 
@@ -33,6 +31,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    # Fail fast if a scenario references a provisioner/evaluator that is not
+    # registered. A broken catalogue should never reach a learner session.
+    validate_scenario_catalog()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -101,13 +102,7 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
 
     sid = uuid.uuid4()
     short_id = sid.hex[:10]
-
-    if payload.scenario_slug == "slow-checkout-query":
-        creds = await provision_slow_checkout(short_id)
-    elif payload.scenario_slug == "blocked-payment-transaction":
-        creds = await provision_blocked_payment(short_id)
-    else:
-        raise HTTPException(400, "Scenario has no provisioner yet")
+    creds = await provision_scenario(payload.scenario_slug, short_id)
 
     now = datetime.now(timezone.utc)
     row = TrainingSession(
@@ -148,12 +143,7 @@ async def evaluate(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Session not found")
 
-    if row.scenario_slug == "slow-checkout-query":
-        result = await evaluate_slow_checkout(row.database_name)
-    elif row.scenario_slug == "blocked-payment-transaction":
-        result = await evaluate_blocked_payment(row.database_name)
-    else:
-        raise HTTPException(400, "Scenario has no evaluator yet")
+    result = await evaluate_scenario(row.scenario_slug, row.database_name)
 
     row.score = result["score"]
     row.result = result
