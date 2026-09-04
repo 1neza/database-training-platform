@@ -35,12 +35,17 @@
 - [x] Generated service roles and learner grant/ownership setup
 - [x] Reusable fault-injection primitives
 - [x] Generic runtime connection/role teardown
-- [ ] Scenario definitions loaded from YAML/JSON files
-- [ ] Scenario authoring validation CLI
+- [x] Scenario definitions loaded from JSON files
+- [x] Scenario authoring validation CLI
 - [ ] Scenario versioning
 - [ ] Scenario reset/replay
 - [ ] Named reusable dataset templates
 - [ ] Named workload templates
+
+Current scenario authoring flow:
+1. Add or edit `backend/scenarios/<slug>.json`.
+2. Run `python -m app.validate_scenarios`.
+3. CI repeats validation, compiles the backend and runs the real PostgreSQL integration suite.
 
 Current reusable fault primitives:
 - persistent idle transaction / row lock
