@@ -1,0 +1,75 @@
+{
+  "slug": "table-bloat-vacuum",
+  "version": "1.0.0",
+  "track_slug": "postgresql-dba",
+  "title": "Table Bloat and VACUUM",
+  "level": "intermediate",
+  "difficulty": 3,
+  "skills": ["postgresql.vacuum-maintenance", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.safe-operations"],
+  "duration_minutes": 30,
+  "summary": "A high-churn event table accumulated many dead tuples and has not been vacuumed after a large cleanup job.",
+  "incident": "10:45 — The event ingestion service deleted a large batch of obsolete rows overnight, but table maintenance did not run afterward. Query latency is trending up and pg_stat_user_tables shows a table that has never been manually vacuumed. Reclaim dead tuples safely without deleting any additional live events.",
+  "objectives": [
+    "Inspect pg_stat_user_tables for dead-tuple and maintenance evidence.",
+    "Confirm the number of live rows that must be preserved.",
+    "Run appropriate VACUUM/ANALYZE maintenance on the affected table.",
+    "Verify dead tuples are cleaned up and the table remains queryable."
+  ],
+  "hints": [
+    "Start with pg_stat_user_tables and look at n_live_tup, n_dead_tup, last_vacuum, and last_analyze.",
+    "A normal VACUUM is sufficient here; VACUUM FULL is not required for this incident.",
+    "Do not truncate or delete more rows to make the statistics look clean."
+  ],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE event_log (id BIGINT PRIMARY KEY, event_type TEXT NOT NULL, payload TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO event_log(id, event_type, payload, created_at) SELECT gs, CASE WHEN gs % 3 = 0 THEN 'checkout' WHEN gs % 3 = 1 THEN 'payment' ELSE 'session' END, repeat(md5(gs::text), 3), now() - ((gs % 7200) || ' seconds')::interval FROM generate_series(1, 20000) AS gs; DELETE FROM event_log WHERE id <= 10000; ANALYZE event_log; CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, note TEXT NOT NULL); INSERT INTO incident_notes(note) VALUES ('The cleanup job intentionally removed 10,000 obsolete events; 10,000 live rows must remain.'), ('The table has not been vacuumed since the cleanup.'), ('Use normal online maintenance; do not delete additional live events.');"
+    ],
+    "learner": {
+      "statements": [
+        "ALTER TABLE event_log OWNER TO {learner}",
+        "GRANT SELECT ON incident_notes TO {learner}",
+        "GRANT pg_read_all_stats TO {learner}"
+      ]
+    },
+    "roles": [],
+    "faults": []
+  },
+  "evaluation": {
+    "checks": [
+      {
+        "type": "row_count",
+        "name": "Live events preserved",
+        "table": "event_log",
+        "operator": "eq",
+        "expected": 10000,
+        "points": 25,
+        "feedback": "Exactly 10,000 live events should remain. Do not delete additional production-style rows."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Manual VACUUM completed",
+        "sql": "SELECT last_vacuum IS NOT NULL FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'event_log'",
+        "expected": true,
+        "points": 35,
+        "feedback": "PostgreSQL still shows no manual VACUUM for event_log. Run safe online maintenance on the affected table."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Dead tuples reclaimed",
+        "sql": "SELECT n_dead_tup <= 100 FROM pg_stat_user_tables WHERE schemaname = 'public' AND relname = 'event_log'",
+        "expected": true,
+        "points": 25,
+        "feedback": "Too many dead tuples remain after maintenance. Confirm VACUUM completed on event_log."
+      },
+      {
+        "type": "query_succeeds",
+        "name": "Event table remains queryable",
+        "sql": "SELECT count(*) FROM event_log WHERE event_type = 'checkout'",
+        "points": 15,
+        "feedback": "The event table is not responding normally after maintenance."
+      }
+    ],
+    "success_feedback": "The event table has been vacuumed, dead tuples are reclaimed, all 10,000 live events remain, and normal queries still succeed."
+  }
+}
