@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app.learning_engine import build_learning_path
 from app.models import SessionStatus, TrainingSession
 
@@ -6,6 +8,7 @@ def _attempt(
     slug: str,
     status: SessionStatus,
     score: int | None = None,
+    started_at: datetime | None = None,
 ) -> TrainingSession:
     return TrainingSession(
         learner_name="Learner",
@@ -13,6 +16,7 @@ def _attempt(
         scenario_slug=slug,
         status=status,
         score=score,
+        started_at=started_at,
         database_name=f"lab_{slug[:12]}",
         database_user=f"user_{slug[:12]}",
         database_password="",
@@ -99,3 +103,87 @@ def test_passing_retry_clears_weak_skills_for_mastered_area():
     assert "postgresql.transaction-basics" not in weak
     assert scenarios["blocked-payment-transaction"]["state"] == "ready"
     assert scenarios["connection-pool-exhaustion"]["state"] == "ready"
+
+
+def test_first_success_is_not_due_before_seven_days():
+    now = datetime(2026, 9, 4, tzinfo=timezone.utc)
+    attempts = [
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.PASSED,
+            100,
+            started_at=now - timedelta(days=6),
+        )
+    ]
+    scenario = _by_slug(build_learning_path(attempts, "postgresql-dba", now=now))[
+        "slow-checkout-query"
+    ]
+
+    assert scenario["review_interval_days"] == 7
+    assert scenario["review_due"] is False
+
+
+def test_first_success_becomes_due_after_seven_days():
+    now = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    attempts = [
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.PASSED,
+            100,
+            started_at=now - timedelta(days=9),
+        )
+    ]
+    path = build_learning_path(attempts, "postgresql-dba", now=now)
+    scenario = _by_slug(path)["slow-checkout-query"]
+
+    assert scenario["review_due"] is True
+    assert scenario["recommended"] is True
+    assert "review this skill after 7 day(s)" in scenario["recommendation_reasons"]
+
+
+def test_prior_failure_shortens_first_review_interval():
+    now = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    attempts = [
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.FAILED,
+            50,
+            started_at=now - timedelta(days=12),
+        ),
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.PASSED,
+            100,
+            started_at=now - timedelta(days=4),
+        ),
+    ]
+    scenario = _by_slug(build_learning_path(attempts, "postgresql-dba", now=now))[
+        "slow-checkout-query"
+    ]
+
+    assert scenario["review_interval_days"] == 3
+    assert scenario["review_due"] is True
+
+
+def test_second_success_extends_review_interval():
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    attempts = [
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.PASSED,
+            100,
+            started_at=now - timedelta(days=40),
+        ),
+        _attempt(
+            "slow-checkout-query",
+            SessionStatus.PASSED,
+            100,
+            started_at=now - timedelta(days=10),
+        ),
+    ]
+    scenario = _by_slug(build_learning_path(attempts, "postgresql-dba", now=now))[
+        "slow-checkout-query"
+    ]
+
+    assert scenario["review_interval_days"] == 21
+    assert scenario["review_due"] is False
