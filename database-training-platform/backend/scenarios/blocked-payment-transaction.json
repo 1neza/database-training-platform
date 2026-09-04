@@ -1,9 +1,11 @@
 {
   "slug": "blocked-payment-transaction",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "track_slug": "postgresql-dba",
   "title": "Blocked Payment Transaction",
   "level": "intermediate",
+  "skills": ["postgresql.locking", "postgresql.activity-monitoring", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.activity-monitoring", "postgresql.transaction-basics"],
   "duration_minutes": 35,
   "summary": "A stale transaction is holding a row lock and payment updates are piling up behind it.",
   "incident": "14:25 — The payments API is timing out for one customer. Monitoring shows an UPDATE waiting on a row lock. Find the blocking session, determine whether it is safe to stop, and restore normal transaction flow without deleting data.",

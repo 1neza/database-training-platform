@@ -1,9 +1,11 @@
 {
   "slug": "slow-checkout-query",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "track_slug": "postgresql-dba",
   "title": "Slow Checkout Query",
   "level": "beginner-intermediate",
+  "skills": ["postgresql.query-plans", "postgresql.indexing", "postgresql.safe-operations"],
+  "prerequisites": [],
   "duration_minutes": 45,
   "summary": "Checkout latency increased after the orders table grew. Diagnose and safely improve the database.",
   "incident": "09:10 — Customer support reports checkout requests taking several seconds. The engineering manager says the issue appeared as order volume grew. You have 45 minutes to diagnose the database and implement a safe production-ready fix.",

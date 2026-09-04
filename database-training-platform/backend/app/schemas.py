@@ -16,10 +16,35 @@ class ScenarioOut(BaseModel):
     track_slug: str
     title: str
     level: str
+    skills: list[str]
+    prerequisites: list[str]
     duration_minutes: int
     summary: str
     incident: str
     objectives: list[str]
+
+
+class SkillOut(BaseModel):
+    slug: str
+    name: str
+    description: str
+
+
+class ScenarioReadinessOut(BaseModel):
+    scenario_slug: str
+    scenario_title: str
+    scenario_version: str
+    state: str
+    skills: list[str]
+    prerequisites: list[str]
+    missing_prerequisites: list[str]
+    recommended: bool
+
+
+class LearningPathOut(BaseModel):
+    track_slug: str
+    mastered_skills: list[SkillOut]
+    scenarios: list[ScenarioReadinessOut]
 
 
 class CreateLearnerIn(BaseModel):

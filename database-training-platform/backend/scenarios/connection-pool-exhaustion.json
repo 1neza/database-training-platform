@@ -1,9 +1,11 @@
 {
   "slug": "connection-pool-exhaustion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "track_slug": "postgresql-dba",
   "title": "Connection Pool Exhaustion",
   "level": "intermediate",
+  "skills": ["postgresql.connection-management", "postgresql.activity-monitoring", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.activity-monitoring"],
   "duration_minutes": 30,
   "summary": "A runaway application pool opened far more PostgreSQL sessions than expected and is consuming connection capacity.",
   "incident": "16:40 — New API requests intermittently fail to obtain a database connection. The checkout service has accumulated an abnormal number of idle sessions. Identify the offending pool, reduce connection pressure safely, and verify the database can still accept fresh work.",

@@ -3,6 +3,7 @@ import type {
   Evaluation,
   Learner,
   LearnerProgress,
+  LearningPath,
   Scenario,
   Session,
 } from "./types";
@@ -42,6 +43,9 @@ export const api = {
 
   learnerProgress: (learnerId: string) =>
     request<LearnerProgress>(`/learners/${learnerId}/progress`),
+
+  learnerLearningPath: (learnerId: string) =>
+    request<LearningPath>(`/learners/${learnerId}/learning-path?track=postgresql-dba`),
 
   startSession: (learnerName: string, scenarioSlug: string, learnerId?: string) =>
     request<Session>("/sessions", {

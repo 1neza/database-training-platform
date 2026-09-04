@@ -4,6 +4,8 @@ export type Scenario = {
   track_slug: string;
   title: string;
   level: string;
+  skills: string[];
+  prerequisites: string[];
   duration_minutes: number;
   summary: string;
   incident: string;
@@ -14,6 +16,29 @@ export type Learner = {
   id: string;
   display_name: string;
   created_at: string;
+};
+
+export type Skill = {
+  slug: string;
+  name: string;
+  description: string;
+};
+
+export type ScenarioReadiness = {
+  scenario_slug: string;
+  scenario_title: string;
+  scenario_version: string;
+  state: "ready" | "locked" | "completed";
+  skills: string[];
+  prerequisites: string[];
+  missing_prerequisites: string[];
+  recommended: boolean;
+};
+
+export type LearningPath = {
+  track_slug: string;
+  mastered_skills: Skill[];
+  scenarios: ScenarioReadiness[];
 };
 
 export type Session = {

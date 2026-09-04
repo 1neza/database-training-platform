@@ -19,6 +19,8 @@ def _valid_scenario(slug: str) -> dict:
         "track_slug": "postgresql-dba",
         "title": "Validation Fixture",
         "level": "beginner",
+        "skills": ["postgresql.safe-operations"],
+        "prerequisites": [],
         "duration_minutes": 10,
         "summary": "A valid scenario used by validation tests.",
         "incident": "A database incident needs investigation.",
@@ -49,6 +51,8 @@ def test_every_catalog_scenario_has_valid_metadata_provisioning_and_evaluation()
     for slug, scenario in SCENARIOS.items():
         assert get_scenario_definition(slug) is scenario
         assert "version" in scenario
+        assert scenario["skills"]
+        assert "prerequisites" in scenario
         assert "provisioning" in scenario
         assert "evaluation" in scenario
 
@@ -82,6 +86,24 @@ def test_unknown_track_fails_catalog_validation(monkeypatch):
     monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
     with pytest.raises(ScenarioConfigurationError, match="unknown track"):
+        validate_scenario_catalog()
+
+
+def test_unknown_skill_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-skill")
+    scenario["skills"] = ["postgresql.not-real"]
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="unknown skill"):
+        validate_scenario_catalog()
+
+
+def test_unknown_prerequisite_skill_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-prerequisite")
+    scenario["prerequisites"] = ["postgresql.not-real"]
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="unknown prerequisite skill"):
         validate_scenario_catalog()
 
 
