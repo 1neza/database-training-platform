@@ -1,32 +1,11 @@
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-
 from .catalog import SCENARIOS
 from .evaluation_engine import evaluate_checks, validate_evaluation_spec
-from .lab import (
-    LabCredentials,
-    provision_blocked_payment,
-    provision_connection_pressure,
-    provision_slow_checkout,
-)
-
-Provisioner = Callable[[str], Awaitable[LabCredentials]]
+from .lab import LabCredentials
+from .provisioning_engine import provision_from_spec, validate_provisioning_spec
 
 
 class ScenarioConfigurationError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class ScenarioRuntime:
-    provisioner: Provisioner
-
-
-PROVISIONERS: dict[str, Provisioner] = {
-    "slow_checkout": provision_slow_checkout,
-    "blocked_payment": provision_blocked_payment,
-    "connection_pressure": provision_connection_pressure,
-}
 
 
 def get_scenario_definition(scenario_slug: str) -> dict:
@@ -36,28 +15,14 @@ def get_scenario_definition(scenario_slug: str) -> dict:
     return scenario
 
 
-def get_scenario_runtime(scenario_slug: str) -> ScenarioRuntime:
-    scenario = get_scenario_definition(scenario_slug)
-    runtime = scenario.get("runtime")
-    if not isinstance(runtime, dict):
-        raise ScenarioConfigurationError(
-            f"Scenario {scenario_slug!r} is missing a runtime configuration"
-        )
-
-    provisioner_name = runtime.get("provisioner")
-    try:
-        provisioner = PROVISIONERS[provisioner_name]
-    except KeyError as exc:
-        raise ScenarioConfigurationError(
-            f"Scenario {scenario_slug!r} references unknown provisioner {provisioner_name!r}"
-        ) from exc
-
-    return ScenarioRuntime(provisioner=provisioner)
-
-
 async def provision_scenario(scenario_slug: str, session_short_id: str) -> LabCredentials:
-    runtime = get_scenario_runtime(scenario_slug)
-    return await runtime.provisioner(session_short_id)
+    scenario = get_scenario_definition(scenario_slug)
+    provisioning = scenario.get("provisioning")
+    if not isinstance(provisioning, dict):
+        raise ScenarioConfigurationError(
+            f"Scenario {scenario_slug!r} is missing a provisioning configuration"
+        )
+    return await provision_from_spec(session_short_id, provisioning)
 
 
 async def evaluate_scenario(scenario_slug: str, database: str) -> dict:
@@ -72,7 +37,13 @@ async def evaluate_scenario(scenario_slug: str, database: str) -> dict:
 
 def validate_scenario_catalog() -> None:
     for scenario_slug, scenario in SCENARIOS.items():
-        get_scenario_runtime(scenario_slug)
+        provisioning = scenario.get("provisioning")
+        if not isinstance(provisioning, dict):
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} is missing a provisioning configuration"
+            )
+        validate_provisioning_spec(provisioning)
+
         evaluation = scenario.get("evaluation")
         if not isinstance(evaluation, dict):
             raise ScenarioConfigurationError(
