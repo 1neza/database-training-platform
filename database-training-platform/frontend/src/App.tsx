@@ -75,6 +75,24 @@ export default function App() {
     }
   }
 
+  async function endLab() {
+    if (!session) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.deleteSession(session.id);
+      setSelectedSlug(session.scenario_slug);
+      setSession(null);
+      setEvaluation(null);
+      setHints([]);
+      setRemaining("--:--");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadHints() {
     if (!scenario) return;
     const data = await api.hints(scenario.slug);
@@ -174,9 +192,14 @@ export default function App() {
               <h2>{scenario.title}</h2>
               <p>{scenario.incident}</p>
             </div>
-            <div className="timer">
-              <span>TIME LEFT</span>
-              <strong>{remaining}</strong>
+            <div className="incidentControls">
+              <div className="timer">
+                <span>TIME LEFT</span>
+                <strong>{remaining}</strong>
+              </div>
+              <button className="secondary" disabled={busy} onClick={endLab}>
+                End lab & return to catalog
+              </button>
             </div>
           </section>
 
@@ -242,6 +265,12 @@ export default function App() {
               <ul>
                 {evaluation.feedback.map((f) => <li key={f}>{f}</li>)}
               </ul>
+
+              {evaluation.passed && (
+                <button disabled={busy} onClick={endLab}>
+                  Finish lab & choose another incident
+                </button>
+              )}
             </section>
           )}
         </>

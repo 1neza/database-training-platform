@@ -36,6 +36,11 @@ export const api = {
       method: "POST",
     }),
 
+  deleteSession: (sessionId: string) =>
+    request<{ deleted: boolean }>(`/sessions/${sessionId}`, {
+      method: "DELETE",
+    }),
+
   hints: (scenarioSlug: string) =>
     request<{ hints: string[] }>(`/scenarios/${scenarioSlug}/hints`),
 };
