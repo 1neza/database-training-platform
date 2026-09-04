@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from typing import Any
@@ -12,6 +13,7 @@ _SUPPORTED_CHECKS = {
     "session_count",
     "scalar_equals",
     "query_succeeds",
+    "concurrent_sql_no_deadlock",
 }
 _SUPPORTED_OPERATORS = {"eq", "lte", "gte"}
 _ALLOWED_SESSION_FILTERS = {"application_name", "state", "usename"}
@@ -119,13 +121,52 @@ def validate_evaluation_spec(spec: dict) -> None:
         if check_type == "scalar_equals" and "expected" not in check:
             raise EvaluationConfigurationError(f"Evaluation check {name!r} requires expected")
 
+        if check_type == "concurrent_sql_no_deadlock":
+            statements = check.get("statements")
+            if not isinstance(statements, list) or len(statements) != 2:
+                raise EvaluationConfigurationError(
+                    f"Evaluation check {name!r} requires exactly two concurrent statements"
+                )
+            if any(not isinstance(sql, str) or not sql.strip() for sql in statements):
+                raise EvaluationConfigurationError(
+                    f"Evaluation check {name!r} contains invalid concurrent SQL"
+                )
+
     if total_points != 100:
         raise EvaluationConfigurationError(
             f"Evaluation checks must total 100 points; configured total is {total_points}"
         )
 
 
-async def _run_check(conn, check: dict) -> tuple[bool, str]:
+async def _run_concurrent_statements(database: str, statements: list[str]) -> tuple[bool, str]:
+    connections = [await connect_as_admin(database), await connect_as_admin(database)]
+    try:
+        for conn in connections:
+            await conn.execute("SET deadlock_timeout = '100ms'")
+
+        results = await asyncio.gather(
+            connections[0].execute(statements[0]),
+            connections[1].execute(statements[1]),
+            return_exceptions=True,
+        )
+        errors = [result for result in results if isinstance(result, Exception)]
+        if not errors:
+            return True, "both concurrent statements completed successfully"
+
+        deadlocks = [
+            error
+            for error in errors
+            if getattr(error, "sqlstate", None) == "40P01"
+        ]
+        if deadlocks:
+            return False, f"PostgreSQL detected {len(deadlocks)} deadlock error(s) (SQLSTATE 40P01)"
+        return False, f"concurrent execution returned {len(errors)} database error(s)"
+    finally:
+        for conn in connections:
+            await conn.close()
+
+
+async def _run_check(conn, check: dict, database: str) -> tuple[bool, str]:
     check_type = check["type"]
 
     if check_type == "index_prefix":
@@ -203,6 +244,9 @@ async def _run_check(conn, check: dict) -> tuple[bool, str]:
                 pass
         return succeeded, f"query completed within {lock_timeout_ms}ms lock timeout"
 
+    if check_type == "concurrent_sql_no_deadlock":
+        return await _run_concurrent_statements(database, check["statements"])
+
     raise EvaluationConfigurationError(f"Unsupported evaluation check type: {check_type!r}")
 
 
@@ -215,7 +259,7 @@ async def evaluate_checks(database: str, spec: dict) -> dict:
 
     try:
         for check in spec["checks"]:
-            passed, detail = await _run_check(conn, check)
+            passed, detail = await _run_check(conn, check, database)
             checks_out.append({
                 "name": check["name"],
                 "passed": passed,
