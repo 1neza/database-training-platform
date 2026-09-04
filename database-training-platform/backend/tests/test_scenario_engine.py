@@ -15,6 +15,7 @@ from app.scenario_engine import (
 def _valid_scenario(slug: str) -> dict:
     return {
         "slug": slug,
+        "version": "1.0.0",
         "track_slug": "postgresql-dba",
         "title": "Validation Fixture",
         "level": "beginner",
@@ -47,6 +48,7 @@ def test_every_catalog_scenario_has_valid_metadata_provisioning_and_evaluation()
 
     for slug, scenario in SCENARIOS.items():
         assert get_scenario_definition(slug) is scenario
+        assert "version" in scenario
         assert "provisioning" in scenario
         assert "evaluation" in scenario
 
@@ -62,6 +64,15 @@ def test_invalid_metadata_fails_catalog_validation(monkeypatch):
     monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
     with pytest.raises(ScenarioConfigurationError, match="duration_minutes"):
+        validate_scenario_catalog()
+
+
+def test_invalid_version_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-version")
+    scenario["version"] = "v1"
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="MAJOR.MINOR.PATCH"):
         validate_scenario_catalog()
 
 
