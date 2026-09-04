@@ -23,9 +23,7 @@ export default function App() {
   const [error, setError] = useState("");
 
   const scenario = useMemo(() => {
-    if (session) {
-      return scenarios.find((item) => item.slug === session.scenario_slug);
-    }
+    if (session) return scenarios.find((item) => item.slug === session.scenario_slug);
     return scenarios.find((item) => item.slug === selectedSlug);
   }, [scenarios, selectedSlug, session]);
 
@@ -80,12 +78,29 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      await api.deleteSession(session.id);
+      await api.finishSession(session.id);
       setSelectedSlug(session.scenario_slug);
       setSession(null);
       setEvaluation(null);
       setHints([]);
       setRemaining("--:--");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function replayLab() {
+    if (!session) return;
+    setBusy(true);
+    setError("");
+    try {
+      const replay = await api.replaySession(session.id);
+      setSession(replay);
+      setEvaluation(null);
+      setHints([]);
+      setRemaining(formatRemaining(replay.deadline_at));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -113,7 +128,7 @@ export default function App() {
             Diagnose incidents, change a real PostgreSQL environment, and get scored against the actual system state.
           </p>
         </div>
-        <div className="badge">MVP 0.2</div>
+        <div className="badge">MVP 0.3</div>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -144,7 +159,7 @@ export default function App() {
                 >
                   <div className="scenarioNumber">0{index + 1}</div>
                   <div>
-                    <p className="eyebrow">{item.level}</p>
+                    <p className="eyebrow">{item.level} · v{item.version}</p>
                     <h3>{item.title}</h3>
                     <p>{item.summary}</p>
                     <div className="meta">
@@ -161,7 +176,7 @@ export default function App() {
           {scenario && (
             <section className="grid startPanel">
               <article className="card">
-                <p className="eyebrow">SELECTED INCIDENT</p>
+                <p className="eyebrow">SELECTED INCIDENT · v{scenario.version}</p>
                 <h2>{scenario.title}</h2>
                 <p>{scenario.incident}</p>
 
@@ -177,9 +192,7 @@ export default function App() {
 
               <article className="card muted">
                 <p className="eyebrow">WHAT YOU WILL PRACTICE</p>
-                <ol>
-                  {scenario.objectives.map((item) => <li key={item}>{item}</li>)}
-                </ol>
+                <ol>{scenario.objectives.map((item) => <li key={item}>{item}</li>)}</ol>
               </article>
             </section>
           )}
@@ -188,7 +201,7 @@ export default function App() {
         <>
           <section className="incident">
             <div>
-              <p className="eyebrow">LIVE INCIDENT</p>
+              <p className="eyebrow">LIVE INCIDENT · v{session.scenario_version} · ATTEMPT {session.attempt_number}</p>
               <h2>{scenario.title}</h2>
               <p>{scenario.incident}</p>
             </div>
@@ -198,7 +211,7 @@ export default function App() {
                 <strong>{remaining}</strong>
               </div>
               <button className="secondary" disabled={busy} onClick={endLab}>
-                End lab & return to catalog
+                Finish attempt & return to catalog
               </button>
             </div>
           </section>
@@ -213,20 +226,15 @@ export default function App() {
                 <div><dt>User</dt><dd>{session.connection.username}</dd></div>
                 <div><dt>Password</dt><dd>{session.connection.password}</dd></div>
               </dl>
-
               <pre>{`psql -h ${session.connection.host} -p ${session.connection.port} -U ${session.connection.username} -d ${session.connection.database}`}</pre>
             </article>
 
             <article className="card">
               <p className="eyebrow">OBJECTIVES</p>
-              <ol>
-                {scenario.objectives.map((item) => <li key={item}>{item}</li>)}
-              </ol>
+              <ol>{scenario.objectives.map((item) => <li key={item}>{item}</li>)}</ol>
               <div className="actions">
                 <button className="secondary" onClick={loadHints}>Show hints</button>
-                <button disabled={busy} onClick={evaluate}>
-                  {busy ? "Evaluating…" : "Evaluate environment"}
-                </button>
+                <button disabled={busy} onClick={evaluate}>{busy ? "Evaluating…" : "Evaluate environment"}</button>
               </div>
             </article>
           </section>
@@ -234,9 +242,7 @@ export default function App() {
           {hints.length > 0 && (
             <section className="card section">
               <p className="eyebrow">HINTS</p>
-              <ol>
-                {hints.map((h) => <li key={h}>{h}</li>)}
-              </ol>
+              <ol>{hints.map((h) => <li key={h}>{h}</li>)}</ol>
             </section>
           )}
 
@@ -244,7 +250,7 @@ export default function App() {
             <section className="card section">
               <div className="resultHeader">
                 <div>
-                  <p className="eyebrow">ASSESSMENT</p>
+                  <p className="eyebrow">ASSESSMENT · ATTEMPT {session.attempt_number}</p>
                   <h2>{evaluation.passed ? "Incident resolved" : "More work needed"}</h2>
                 </div>
                 <strong className="score">{evaluation.score}/100</strong>
@@ -262,15 +268,16 @@ export default function App() {
                 ))}
               </div>
 
-              <ul>
-                {evaluation.feedback.map((f) => <li key={f}>{f}</li>)}
-              </ul>
+              <ul>{evaluation.feedback.map((f) => <li key={f}>{f}</li>)}</ul>
 
-              {evaluation.passed && (
-                <button disabled={busy} onClick={endLab}>
-                  Finish lab & choose another incident
+              <div className="actions">
+                <button className="secondary" disabled={busy} onClick={replayLab}>
+                  {busy ? "Provisioning replay…" : "Replay this incident"}
                 </button>
-              )}
+                <button disabled={busy} onClick={endLab}>
+                  Finish attempt & choose another incident
+                </button>
+              </div>
             </section>
           )}
         </>
