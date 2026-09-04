@@ -1,6 +1,6 @@
 {
   "slug": "slow-checkout-query",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "track_slug": "postgresql-dba",
   "title": "Slow Checkout Query",
   "level": "beginner-intermediate",
@@ -10,11 +10,9 @@
   "objectives": ["Inspect the schema and data volume.", "Run EXPLAIN or EXPLAIN ANALYZE on the checkout lookup query.", "Identify why PostgreSQL is scanning too much data.", "Apply a database-level optimization without deleting data.", "Verify the query plan improved."],
   "hints": ["Start with \\d orders and inspect existing indexes.", "The application frequently filters by customer_id and asks for the newest orders.", "A useful index can serve both filtering and ordering when its column order matches the query."],
   "provisioning": {
+    "datasets": [{"slug": "ecommerce-orders-medium", "version": "1.0.0"}],
     "setup_sql": [
-      "CREATE TABLE customers (id BIGSERIAL PRIMARY KEY, email TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, customer_id BIGINT NOT NULL REFERENCES customers(id), status TEXT NOT NULL, total_cents INTEGER NOT NULL CHECK (total_cents >= 0), created_at TIMESTAMPTZ NOT NULL); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL);",
-      "INSERT INTO customers(email, created_at) SELECT 'customer_' || g || '@example.test', now() - (random() * interval '730 days') FROM generate_series(1, 15000) AS g;",
-      "INSERT INTO orders(customer_id, status, total_cents, created_at) SELECT 1 + floor(random() * 15000)::bigint, (ARRAY['paid','paid','paid','shipped','refunded','pending'])[1 + floor(random()*6)::int], 500 + floor(random() * 60000)::int, now() - (random() * interval '365 days') FROM generate_series(1, 350000);",
-      "CREATE INDEX idx_orders_created_at ON orders(created_at); ANALYZE customers; ANALYZE orders;",
+      "CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL);",
       "INSERT INTO incident_notes(note) VALUES ('Application query: SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20;'), ('Do not delete production orders. Changes should be safe for normal application traffic.'), ('Your work is evaluated against the actual database state.');"
     ],
     "learner": {"statements": ["ALTER TABLE orders OWNER TO {learner}", "ALTER SEQUENCE orders_id_seq OWNER TO {learner}", "GRANT SELECT, INSERT, UPDATE, DELETE ON customers, incident_notes TO {learner}", "GRANT USAGE, SELECT ON SEQUENCE customers_id_seq, incident_notes_id_seq TO {learner}", "GRANT CREATE ON SCHEMA public TO {learner}"]},

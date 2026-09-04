@@ -1,0 +1,30 @@
+{
+  "slug": "stale-reporting-transaction",
+  "version": "1.0.0",
+  "track_slug": "postgresql-dba",
+  "title": "Stale Reporting Transaction",
+  "level": "intermediate",
+  "duration_minutes": 30,
+  "summary": "A reporting worker left a transaction open after reading the orders table, creating an old database snapshot that should be cleared safely.",
+  "incident": "11:35 — Database monitoring shows a reporting connection that has been idle in transaction far longer than expected. The application is not blocked yet, but the stale transaction can interfere with routine maintenance and vacuum progress. Identify the session, confirm it is safe to stop, and clear it without damaging production data.",
+  "objectives": ["Inspect pg_stat_activity for old idle-in-transaction sessions.", "Identify the reporting worker and understand why stale transactions are operationally risky.", "Terminate only the stale reporting backend.", "Verify the orders dataset remains intact and PostgreSQL is responsive."],
+  "hints": ["Start by ordering pg_stat_activity by xact_start.", "The stale session identifies itself as weekly-report-worker.", "This is an isolated lab: pg_signal_backend is granted so you can terminate the correct non-superuser backend."],
+  "provisioning": {
+    "datasets": [{"slug": "ecommerce-orders-medium", "version": "1.0.0"}],
+    "setup_sql": [
+      "CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL);",
+      "INSERT INTO incident_notes(note) VALUES ('A weekly reporting query completed but its transaction was never closed.'), ('The reporting session is not expected to remain idle in transaction.'), ('Do not delete orders or terminate unrelated database sessions.');"
+    ],
+    "learner": {"statements": ["GRANT SELECT ON customers, orders, incident_notes TO {learner}", "GRANT pg_signal_backend TO {learner}", "GRANT pg_read_all_stats TO {learner}"]},
+    "roles": [{"alias": "reporter", "prefix": "reporter", "statements": ["GRANT CONNECT ON DATABASE {database} TO {role}", "GRANT USAGE ON SCHEMA public TO {role}", "GRANT SELECT ON orders TO {role}"]}],
+    "faults": [{"type": "idle_transaction_lock", "role": "reporter", "application_name": "weekly-report-worker", "statements": ["BEGIN", "SELECT count(*) FROM orders WHERE created_at > now() - interval '7 days'"]}]
+  },
+  "evaluation": {
+    "checks": [
+      {"type": "session_count", "name": "Stale reporting transaction cleared", "filters": {"application_name": "weekly-report-worker", "state": "idle in transaction"}, "operator": "eq", "expected": 0, "points": 60, "feedback": "The weekly-report-worker is still idle in transaction. Identify its PID and terminate only that backend."},
+      {"type": "row_count", "name": "Orders preserved", "table": "orders", "operator": "gte", "expected": 350000, "points": 25, "feedback": "The reporting incident must be resolved without deleting the production-style orders dataset."},
+      {"type": "scalar_equals", "name": "Database remains responsive", "sql": "SELECT 1", "expected": 1, "points": 15, "feedback": "PostgreSQL is not responding normally after the attempted mitigation."}
+    ],
+    "success_feedback": "The stale reporting transaction is gone, the e-commerce dataset is intact, and PostgreSQL remains responsive."
+  }
+}
