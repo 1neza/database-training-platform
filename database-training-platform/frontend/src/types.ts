@@ -4,6 +4,7 @@ export type Scenario = {
   track_slug: string;
   title: string;
   level: string;
+  difficulty: number;
   skills: string[];
   prerequisites: string[];
   duration_minutes: number;
@@ -34,6 +35,7 @@ export type ScenarioReadiness = {
   scenario_slug: string;
   scenario_title: string;
   scenario_version: string;
+  difficulty: number;
   state: "ready" | "locked" | "completed";
   skills: string[];
   prerequisites: string[];
@@ -48,6 +50,8 @@ export type ScenarioReadiness = {
 
 export type LearningPath = {
   track_slug: string;
+  target_difficulty: number;
+  difficulty_reason: string;
   mastered_skills: Skill[];
   weak_skills: WeakSkill[];
   scenarios: ScenarioReadiness[];

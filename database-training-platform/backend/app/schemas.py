@@ -16,6 +16,7 @@ class ScenarioOut(BaseModel):
     track_slug: str
     title: str
     level: str
+    difficulty: int
     skills: list[str]
     prerequisites: list[str]
     duration_minutes: int
@@ -40,6 +41,7 @@ class ScenarioReadinessOut(BaseModel):
     scenario_slug: str
     scenario_title: str
     scenario_version: str
+    difficulty: int
     state: str
     skills: list[str]
     prerequisites: list[str]
@@ -54,6 +56,8 @@ class ScenarioReadinessOut(BaseModel):
 
 class LearningPathOut(BaseModel):
     track_slug: str
+    target_difficulty: int
+    difficulty_reason: str
     mastered_skills: list[SkillOut]
     weak_skills: list[WeakSkillOut]
     scenarios: list[ScenarioReadinessOut]

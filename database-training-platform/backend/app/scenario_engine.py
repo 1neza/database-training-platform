@@ -65,6 +65,12 @@ def validate_scenario_metadata(scenario_slug: str, scenario: dict) -> None:
             f"Scenario {scenario_slug!r} requires positive integer duration_minutes"
         )
 
+    difficulty = scenario.get("difficulty")
+    if not isinstance(difficulty, int) or isinstance(difficulty, bool) or not 1 <= difficulty <= 5:
+        raise ScenarioConfigurationError(
+            f"Scenario {scenario_slug!r} difficulty must be an integer from 1 to 5"
+        )
+
     _require_string_list(scenario_slug, scenario, "objectives")
     _require_string_list(scenario_slug, scenario, "hints")
     _require_string_list(scenario_slug, scenario, "skills")

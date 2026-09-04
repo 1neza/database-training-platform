@@ -1,9 +1,10 @@
 {
   "slug": "slow-checkout-query",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "track_slug": "postgresql-dba",
   "title": "Slow Checkout Query",
   "level": "beginner-intermediate",
+  "difficulty": 2,
   "skills": ["postgresql.query-plans", "postgresql.indexing", "postgresql.safe-operations"],
   "prerequisites": [],
   "duration_minutes": 45,

@@ -11,6 +11,7 @@ RETRY_BOOST = 80
 FAILURE_BOOST = 12
 WEAK_SKILL_BOOST = 18
 REVIEW_DUE_BOOST = 55
+DIFFICULTY_MATCH_BOOST = 16
 LOW_SCORE_THRESHOLD = 80
 REVIEW_INTERVALS_DAYS = (7, 21, 60, 120)
 
@@ -106,6 +107,36 @@ def _weak_skill_evidence(
     return weak
 
 
+def _target_difficulty(
+    attempts: list[TrainingSession],
+    track_slug: str,
+) -> tuple[int, str]:
+    passed = [
+        attempt
+        for attempt in attempts
+        if attempt.status == SessionStatus.PASSED
+        and (scenario := SCENARIOS.get(attempt.scenario_slug)) is not None
+        and scenario["track_slug"] == track_slug
+    ]
+    if not passed:
+        return 2, "start with foundational production incidents"
+
+    passed_slugs = {attempt.scenario_slug for attempt in passed}
+    max_difficulty = max(SCENARIOS[slug]["difficulty"] for slug in passed_slugs)
+    scores = [attempt.score for attempt in passed if attempt.score is not None]
+    average_score = (sum(scores) / len(scores)) if scores else None
+
+    if average_score is not None and average_score < 75:
+        target = max(1, max_difficulty - 1)
+        return target, "consolidate at a lower difficulty after weaker successful evidence"
+
+    if len(passed_slugs) >= 2 and (average_score is None or average_score >= 90):
+        target = min(5, max_difficulty + 1)
+        return target, "increase difficulty after multiple strong completed scenarios"
+
+    return max(2, max_difficulty), "continue near the highest demonstrated difficulty"
+
+
 def _review_schedule(
     scenario_evidence: dict | None,
     now: datetime,
@@ -146,6 +177,7 @@ def _recommendation_score(
     scenario: dict,
     scenario_evidence: dict | None,
     weak_skills: dict[str, dict],
+    target_difficulty: int,
 ) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
@@ -169,6 +201,14 @@ def _recommendation_score(
         score += len(trained_weak_skills) * WEAK_SKILL_BOOST
         reasons.append("practice currently weak skills")
 
+    difficulty_distance = abs(scenario["difficulty"] - target_difficulty)
+    difficulty_boost = max(0, DIFFICULTY_MATCH_BOOST - (difficulty_distance * 6))
+    score += difficulty_boost
+    if difficulty_distance == 0:
+        reasons.append(f"matches the current target difficulty {target_difficulty}/5")
+    elif difficulty_distance == 1:
+        reasons.append(f"stays close to the current target difficulty {target_difficulty}/5")
+
     if not reasons:
         reasons.append("advance to a ready skill area")
 
@@ -190,6 +230,7 @@ def build_learning_path(
     }
     attempt_evidence = _attempt_evidence(attempts)
     weak_evidence = _weak_skill_evidence(attempts, mastered)
+    target_difficulty, difficulty_reason = _target_difficulty(attempts, track_slug)
 
     readiness: list[dict] = []
     for scenario in SCENARIOS.values():
@@ -214,6 +255,7 @@ def build_learning_path(
                 scenario,
                 scenario_evidence,
                 weak_evidence,
+                target_difficulty,
             )
         elif state == "completed" and review["review_due"]:
             priority = REVIEW_DUE_BOOST + min(review["days_overdue"], 30)
@@ -227,6 +269,7 @@ def build_learning_path(
             "scenario_slug": scenario["slug"],
             "scenario_title": scenario["title"],
             "scenario_version": scenario["version"],
+            "difficulty": scenario["difficulty"],
             "state": state,
             "skills": scenario.get("skills", []),
             "prerequisites": prerequisites,
@@ -249,6 +292,7 @@ def build_learning_path(
             key=lambda item: (
                 -item["recommendation_priority"],
                 0 if item["state"] == "ready" else 1,
+                abs(item["difficulty"] - target_difficulty),
                 len(item["prerequisites"]),
                 SCENARIOS[item["scenario_slug"]]["duration_minutes"],
                 item["scenario_title"],
@@ -287,6 +331,8 @@ def build_learning_path(
 
     return {
         "track_slug": track_slug,
+        "target_difficulty": target_difficulty,
+        "difficulty_reason": difficulty_reason,
         "mastered_skills": mastered_out,
         "weak_skills": weak_out,
         "scenarios": readiness,
