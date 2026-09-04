@@ -13,8 +13,10 @@ The MVP currently includes:
 - realistic synthetic datasets and generated application/service roles
 - timed incidents, objectives and hints
 - deterministic 100-point grading against the live database
+- file-authored JSON scenario definitions
 - declarative scenario provisioning and reusable fault injection
 - declarative scenario evaluation rules
+- scenario validation CLI enforced in CI
 - explicit lab teardown and return-to-catalog flow
 - React + Vite learner dashboard
 - FastAPI orchestration API
@@ -103,6 +105,10 @@ React / Vite learner UI
           +---- Platform PostgreSQL
           |       session metadata / results
           |
+          +---- Scenario Loader
+          |       backend/scenarios/*.json
+          |       metadata / provisioning / grading validation
+          |
           +---- Scenario Engine
           |       declarative provisioning engine
           |       reusable fault injectors
@@ -113,9 +119,17 @@ React / Vite learner UI
                   optional generated service roles/sessions
 ```
 
-### Scenario engine
+### Scenario authoring and engine
 
-Scenario definitions live in `backend/app/catalog.py`. API routing is scenario-agnostic: each scenario contains provisioning and evaluation specifications as data rather than requiring API-specific branching.
+Scenario definitions live in `backend/scenarios/*.json`. `backend/app/catalog.py` discovers and loads them; API routing remains scenario-agnostic.
+
+Before running or committing scenario changes, validate them from the backend directory:
+
+```bash
+python -m app.validate_scenarios
+```
+
+The validator checks required metadata, track references, provisioning structure, generated-role/fault references, supported grading checks and 100-point score totals. GitHub Actions runs this validation before backend compilation and live PostgreSQL integration tests.
 
 Provisioning currently supports:
 
@@ -137,14 +151,13 @@ Reusable grading primitives currently include:
 - `query_succeeds`
 - `concurrent_sql_no_deadlock`
 
-Each scenario's checks must total 100 points. Application startup validates the complete catalog and fails fast on invalid provisioning references, unsupported fault types, unsupported grading checks or incorrect point totals.
-
 This keeps the AI layer optional. An LLM can later act as a manager, coworker, mentor or postmortem reviewer, but the technical pass/fail decision is grounded in PostgreSQL state and repeatable workloads.
 
 ## Testing
 
 GitHub Actions validates:
 
+- scenario JSON files and metadata
 - Python backend compilation
 - backend unit tests
 - real PostgreSQL integration tests
@@ -165,8 +178,8 @@ docker compose down -v
 
 Near-term priorities are:
 
-- move scenario definitions from the Python catalog into validated YAML/JSON files
 - add scenario reset/replay and versioning
+- introduce reusable named dataset/workload templates to reduce scenario JSON size
 - more DBA incidents: long-running transactions, permissions, failed migrations, backup/restore, disk pressure and VACUUM/bloat
 - persistent learner progress and skill graph
 - scenario prerequisites and adaptive recommendations

@@ -1,74 +1,104 @@
 # Scenario Authoring Specification
 
-Scenario definitions currently live in `backend/app/catalog.py`. The API is scenario-agnostic: each scenario declares its learner-facing metadata, provisioning specification and evaluation specification as data.
+Scenario definitions live in `backend/scenarios/*.json`. `backend/app/catalog.py` only discovers and loads those files; the API remains scenario-agnostic.
 
-A simplified current scenario looks like this:
+Each file name must match its scenario slug. For example:
 
-```python
+```text
+backend/scenarios/connection-pool-exhaustion.json
+```
+
+must contain:
+
+```json
 {
-    "slug": "connection-pool-exhaustion",
-    "track_slug": "postgresql-dba",
-    "title": "Connection Pool Exhaustion",
-    "level": "intermediate",
-    "duration_minutes": 30,
-    "summary": "A runaway application pool opened too many sessions.",
-    "incident": "New API requests intermittently fail...",
-    "objectives": ["inspect activity", "reduce pressure", "verify recovery"],
-    "hints": ["Group pg_stat_activity by application_name."],
-
-    "provisioning": {
-        "setup_sql": [
-            "CREATE TABLE service_config (...);",
-            "INSERT INTO service_config (...) VALUES (...);",
-        ],
-        "learner": {
-            "statements": [
-                "GRANT SELECT ON service_config TO {learner}",
-                "GRANT pg_signal_backend TO {learner}",
-            ]
-        },
-        "roles": [
-            {
-                "alias": "pool",
-                "prefix": "pool",
-                "statements": [
-                    "GRANT CONNECT ON DATABASE {database} TO {role}"
-                ],
-            }
-        ],
-        "faults": [
-            {
-                "type": "connection_pool",
-                "role": "pool",
-                "application_name": "checkout-api-pool",
-                "count": 12,
-                "warmup_sql": "SELECT 1",
-            }
-        ],
-    },
-
-    "evaluation": {
-        "checks": [
-            {
-                "type": "session_count",
-                "name": "Runaway pool reduced",
-                "filters": {"application_name": "checkout-api-pool"},
-                "operator": "lte",
-                "expected": 3,
-                "points": 65,
-            },
-            {
-                "type": "scalar_equals",
-                "name": "Database remains responsive",
-                "sql": "SELECT 1",
-                "expected": 1,
-                "points": 35,
-            },
-        ],
-        "success_feedback": "Connection pressure is back within the expected range.",
-    },
+  "slug": "connection-pool-exhaustion"
 }
 ```
+
+A simplified scenario looks like this:
+
+```json
+{
+  "slug": "connection-pool-exhaustion",
+  "track_slug": "postgresql-dba",
+  "title": "Connection Pool Exhaustion",
+  "level": "intermediate",
+  "duration_minutes": 30,
+  "summary": "A runaway application pool opened too many sessions.",
+  "incident": "New API requests intermittently fail...",
+  "objectives": ["Inspect activity", "Reduce pressure", "Verify recovery"],
+  "hints": ["Group pg_stat_activity by application_name."],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE service_config (...);",
+      "INSERT INTO service_config (...) VALUES (...);"
+    ],
+    "learner": {
+      "statements": [
+        "GRANT SELECT ON service_config TO {learner}",
+        "GRANT pg_signal_backend TO {learner}"
+      ]
+    },
+    "roles": [
+      {
+        "alias": "pool",
+        "prefix": "pool",
+        "statements": [
+          "GRANT CONNECT ON DATABASE {database} TO {role}"
+        ]
+      }
+    ],
+    "faults": [
+      {
+        "type": "connection_pool",
+        "role": "pool",
+        "application_name": "checkout-api-pool",
+        "count": 12,
+        "warmup_sql": "SELECT 1"
+      }
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      {
+        "type": "session_count",
+        "name": "Runaway pool reduced",
+        "filters": {"application_name": "checkout-api-pool"},
+        "operator": "lte",
+        "expected": 3,
+        "points": 65
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Database remains responsive",
+        "sql": "SELECT 1",
+        "expected": 1,
+        "points": 35
+      }
+    ],
+    "success_feedback": "Connection pressure is back within the expected range."
+  }
+}
+```
+
+## Required metadata
+
+Every scenario must provide:
+
+- `slug`
+- `track_slug`
+- `title`
+- `level`
+- positive integer `duration_minutes`
+- `summary`
+- `incident`
+- non-empty `objectives`
+- non-empty `hints`
+- `provisioning`
+- `evaluation`
+
+The referenced `track_slug` must exist in the platform track catalog.
 
 ## Provisioning
 
@@ -109,7 +139,7 @@ Runs exactly two SQL statements concurrently through a generated non-superuser s
 
 ## Evaluation
 
-Every evaluation check has a positive point value, and the configured checks must total exactly 100 points.
+Every evaluation check has a positive point value, and configured checks must total exactly 100 points.
 
 Supported grading primitives:
 
@@ -123,10 +153,22 @@ Supported grading primitives:
 
 `concurrent_sql_no_deadlock` opens two independent administrator connections, executes the configured statements concurrently and fails when PostgreSQL returns `40P01` or another database error.
 
-## Validation
+## Validation workflow
 
-Application startup validates every scenario before serving traffic. Invalid provisioning structures, unknown role aliases, unsupported fault types, unsupported grading checks and incorrect point totals fail fast.
+Run this from `database-training-platform/backend` before committing a scenario:
 
-## Next format step
+```bash
+python -m app.validate_scenarios
+```
 
-The next authoring milestone is moving these definitions out of Python and into validated YAML or JSON files without changing the runtime semantics described above. A later CLI should validate scenario files before they are committed or published.
+The validator checks file loading, filename/slug consistency, required metadata, track references, provisioning structure, service-role/fault references, supported grading checks and the 100-point score total.
+
+GitHub Actions runs the same validator before backend compilation and the live PostgreSQL integration suite. This gives scenario changes three gates:
+
+1. JSON loading.
+2. Static scenario validation.
+3. Runtime PostgreSQL tests.
+
+## Next authoring steps
+
+The next improvements are scenario versioning, reset/replay, and reusable named dataset/workload templates so scenario JSON becomes smaller and easier to compose.
