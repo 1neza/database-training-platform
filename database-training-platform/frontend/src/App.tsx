@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
-import type { Evaluation, Scenario, Session } from "./types";
+import type {
+  AttemptHistory,
+  Evaluation,
+  Learner,
+  LearnerProgress,
+  Scenario,
+  Session,
+} from "./types";
+
+const LEARNER_STORAGE_KEY = "databaselab.learnerId";
 
 function formatRemaining(deadline: string) {
   const ms = new Date(deadline).getTime() - Date.now();
@@ -11,10 +20,22 @@ function formatRemaining(deadline: string) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string>("");
   const [name, setName] = useState("Learner");
+  const [learner, setLearner] = useState<Learner | null>(null);
+  const [attempts, setAttempts] = useState<AttemptHistory[]>([]);
+  const [progress, setProgress] = useState<LearnerProgress | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [hints, setHints] = useState<string[]>([]);
@@ -27,6 +48,15 @@ export default function App() {
     return scenarios.find((item) => item.slug === selectedSlug);
   }, [scenarios, selectedSlug, session]);
 
+  async function refreshLearnerData(learnerId: string) {
+    const [history, summary] = await Promise.all([
+      api.learnerAttempts(learnerId),
+      api.learnerProgress(learnerId),
+    ]);
+    setAttempts(history);
+    setProgress(summary);
+  }
+
   useEffect(() => {
     api.scenarios()
       .then((items) => {
@@ -34,6 +64,19 @@ export default function App() {
         if (items.length > 0) setSelectedSlug(items[0].slug);
       })
       .catch((e) => setError(String(e)));
+
+    const storedLearnerId = window.localStorage.getItem(LEARNER_STORAGE_KEY);
+    if (storedLearnerId) {
+      api.learner(storedLearnerId)
+        .then(async (profile) => {
+          setLearner(profile);
+          setName(profile.display_name);
+          await refreshLearnerData(profile.id);
+        })
+        .catch(() => {
+          window.localStorage.removeItem(LEARNER_STORAGE_KEY);
+        });
+    }
   }, []);
 
   useEffect(() => {
@@ -44,15 +87,26 @@ export default function App() {
     return () => clearInterval(timer);
   }, [session]);
 
+  async function ensureLearner(): Promise<Learner> {
+    if (learner) return learner;
+    const profile = await api.createLearner(name || "Learner");
+    window.localStorage.setItem(LEARNER_STORAGE_KEY, profile.id);
+    setLearner(profile);
+    setName(profile.display_name);
+    return profile;
+  }
+
   async function start() {
     if (!scenario) return;
     setBusy(true);
     setError("");
     try {
-      const created = await api.startSession(name || "Learner", scenario.slug);
+      const profile = await ensureLearner();
+      const created = await api.startSession(profile.display_name, scenario.slug, profile.id);
       setSession(created);
       setEvaluation(null);
       setHints([]);
+      await refreshLearnerData(profile.id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -65,7 +119,9 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      setEvaluation(await api.evaluate(session.id));
+      const result = await api.evaluate(session.id);
+      setEvaluation(result);
+      if (learner) await refreshLearnerData(learner.id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -84,6 +140,7 @@ export default function App() {
       setEvaluation(null);
       setHints([]);
       setRemaining("--:--");
+      if (learner) await refreshLearnerData(learner.id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -101,6 +158,7 @@ export default function App() {
       setEvaluation(null);
       setHints([]);
       setRemaining(formatRemaining(replay.deadline_at));
+      if (learner) await refreshLearnerData(learner.id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -114,6 +172,14 @@ export default function App() {
     setHints(data.hints);
   }
 
+  function switchLearner() {
+    window.localStorage.removeItem(LEARNER_STORAGE_KEY);
+    setLearner(null);
+    setAttempts([]);
+    setProgress(null);
+    setName("Learner");
+  }
+
   if (scenarios.length === 0) {
     return <main className="shell"><p>Loading scenarios…</p></main>;
   }
@@ -125,16 +191,57 @@ export default function App() {
           <p className="eyebrow">DATABASELAB / POSTGRESQL DBA</p>
           <h1>Learn databases by operating one.</h1>
           <p className="sub">
-            Diagnose incidents, change a real PostgreSQL environment, and get scored against the actual system state.
+            Diagnose incidents, change a real PostgreSQL environment, and build a measurable record of production database skills.
           </p>
         </div>
-        <div className="badge">MVP 0.3</div>
+        <div className="badge">MVP 0.4</div>
       </header>
 
       {error && <div className="error">{error}</div>}
 
       {!session ? (
         <>
+          {learner && progress && (
+            <section className="progressPanel">
+              <div className="progressHeader">
+                <div>
+                  <p className="eyebrow">LEARNER PROGRESS</p>
+                  <h2>{learner.display_name}</h2>
+                  <p className="catalogIntro">Your completed work now stays attached to this learner profile.</p>
+                </div>
+                <button className="secondary" onClick={switchLearner}>Use another learner</button>
+              </div>
+
+              <div className="statGrid">
+                <div className="stat"><strong>{progress.total_attempts}</strong><span>Attempts</span></div>
+                <div className="stat"><strong>{progress.scenarios_attempted}</strong><span>Scenarios tried</span></div>
+                <div className="stat"><strong>{progress.scenarios_passed}</strong><span>Scenarios passed</span></div>
+                <div className="stat">
+                  <strong>{progress.average_best_score === null ? "—" : Math.round(progress.average_best_score)}</strong>
+                  <span>Avg. best score</span>
+                </div>
+              </div>
+
+              {attempts.length > 0 && (
+                <div className="history">
+                  <p className="eyebrow">RECENT ATTEMPTS</p>
+                  {attempts.slice(0, 5).map((attempt) => (
+                    <div className="historyRow" key={attempt.id}>
+                      <div>
+                        <strong>{attempt.scenario_title}</strong>
+                        <span>v{attempt.scenario_version} · attempt {attempt.attempt_number} · {formatDate(attempt.started_at)}</span>
+                      </div>
+                      <div className="historyResult">
+                        <span className={`status ${attempt.status}`}>{attempt.status}</span>
+                        <strong>{attempt.score === null ? "—" : `${attempt.score}/100`}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           <section className="catalogHeader">
             <div>
               <p className="eyebrow">SCENARIO CATALOG</p>
@@ -149,6 +256,7 @@ export default function App() {
           <section className="scenarioGrid">
             {scenarios.map((item, index) => {
               const selected = item.slug === selectedSlug;
+              const scenarioProgress = progress?.scenario_progress.find((p) => p.scenario_slug === item.slug);
               return (
                 <button
                   type="button"
@@ -157,7 +265,7 @@ export default function App() {
                   onClick={() => setSelectedSlug(item.slug)}
                   aria-pressed={selected}
                 >
-                  <div className="scenarioNumber">0{index + 1}</div>
+                  <div className="scenarioNumber">{String(index + 1).padStart(2, "0")}</div>
                   <div>
                     <p className="eyebrow">{item.level} · v{item.version}</p>
                     <h3>{item.title}</h3>
@@ -165,6 +273,9 @@ export default function App() {
                     <div className="meta">
                       <span>{item.duration_minutes} min</span>
                       <span>{item.objectives.length} objectives</span>
+                      {scenarioProgress?.best_score !== null && scenarioProgress?.best_score !== undefined && (
+                        <span>Best {scenarioProgress.best_score}/100</span>
+                      )}
                     </div>
                   </div>
                   <span className="selectMarker">{selected ? "Selected" : "Choose"}</span>
@@ -182,7 +293,11 @@ export default function App() {
 
                 <label>
                   Learner name
-                  <input value={name} onChange={(e) => setName(e.target.value)} />
+                  <input
+                    value={name}
+                    disabled={Boolean(learner)}
+                    onChange={(e) => setName(e.target.value)}
+                  />
                 </label>
 
                 <button disabled={busy} onClick={start}>

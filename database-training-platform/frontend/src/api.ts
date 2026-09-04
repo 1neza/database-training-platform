@@ -1,4 +1,11 @@
-import type { Evaluation, Scenario, Session } from "./types";
+import type {
+  AttemptHistory,
+  Evaluation,
+  Learner,
+  LearnerProgress,
+  Scenario,
+  Session,
+} from "./types";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -22,12 +29,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   scenarios: () => request<Scenario[]>("/scenarios?track=postgresql-dba"),
 
-  startSession: (learnerName: string, scenarioSlug: string) =>
+  createLearner: (displayName: string) =>
+    request<Learner>("/learners", {
+      method: "POST",
+      body: JSON.stringify({ display_name: displayName }),
+    }),
+
+  learner: (learnerId: string) => request<Learner>(`/learners/${learnerId}`),
+
+  learnerAttempts: (learnerId: string) =>
+    request<AttemptHistory[]>(`/learners/${learnerId}/attempts`),
+
+  learnerProgress: (learnerId: string) =>
+    request<LearnerProgress>(`/learners/${learnerId}/progress`),
+
+  startSession: (learnerName: string, scenarioSlug: string, learnerId?: string) =>
     request<Session>("/sessions", {
       method: "POST",
       body: JSON.stringify({
         learner_name: learnerName,
         scenario_slug: scenarioSlug,
+        learner_id: learnerId || null,
       }),
     }),
 
