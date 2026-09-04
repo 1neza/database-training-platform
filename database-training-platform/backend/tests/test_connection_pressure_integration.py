@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.evaluator import evaluate_connection_pressure
 from app.lab import provision_connection_pressure, teardown_lab
+from app.scenario_engine import evaluate_scenario
 
 
 def test_connection_pressure_lab_can_be_diagnosed_and_recovered():
@@ -15,7 +15,7 @@ async def _exercise_connection_pressure_lab():
     creds = await provision_connection_pressure("ci003")
 
     try:
-        before = await evaluate_connection_pressure(creds.database)
+        before = await evaluate_scenario("connection-pool-exhaustion", creds.database)
         assert before["passed"] is False
         assert before["score"] < 100
 
@@ -36,8 +36,6 @@ async def _exercise_connection_pressure_lab():
             """)
             assert len(pool_pids) == 12
 
-            # Keep exactly the expected healthy pool size and terminate only
-            # the excess application sessions.
             for row in pool_pids[3:]:
                 terminated = await learner.fetchval(
                     "SELECT pg_terminate_backend($1)", row["pid"]
@@ -48,7 +46,7 @@ async def _exercise_connection_pressure_lab():
 
         await asyncio.sleep(0.2)
 
-        after = await evaluate_connection_pressure(creds.database)
+        after = await evaluate_scenario("connection-pool-exhaustion", creds.database)
         assert after["passed"] is True
         assert after["score"] == 100
         assert all(check["passed"] for check in after["checks"])
