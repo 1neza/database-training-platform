@@ -4,6 +4,7 @@ import secrets
 
 import asyncpg
 
+from .dataset_catalog import DATASETS
 from .lab import (
     LabCredentials,
     admin_connect,
@@ -36,15 +37,51 @@ def _safe_identifier(value: str, label: str) -> str:
     return value
 
 
+def _resolve_datasets(spec: dict) -> list[dict]:
+    refs = spec.get("datasets", [])
+    if not isinstance(refs, list):
+        raise ProvisioningConfigurationError("datasets must be a list")
+
+    resolved: list[dict] = []
+    seen: set[str] = set()
+    for ref in refs:
+        if not isinstance(ref, dict):
+            raise ProvisioningConfigurationError("Each dataset reference must be an object")
+        slug = ref.get("slug")
+        version = ref.get("version")
+        if not isinstance(slug, str) or not slug:
+            raise ProvisioningConfigurationError("Dataset reference requires slug")
+        if not isinstance(version, str) or not version:
+            raise ProvisioningConfigurationError(f"Dataset {slug!r} reference requires version")
+        if slug in seen:
+            raise ProvisioningConfigurationError(f"Duplicate dataset reference: {slug}")
+        seen.add(slug)
+
+        dataset = DATASETS.get(slug)
+        if dataset is None:
+            raise ProvisioningConfigurationError(f"Unknown dataset template: {slug!r}")
+        if dataset["version"] != version:
+            raise ProvisioningConfigurationError(
+                f"Dataset {slug!r} requires version {version!r}, available version is {dataset['version']!r}"
+            )
+        resolved.append(dataset)
+    return resolved
+
+
 def validate_provisioning_spec(spec: dict) -> None:
     if not isinstance(spec, dict):
         raise ProvisioningConfigurationError("Provisioning spec must be an object")
 
-    setup_sql = spec.get("setup_sql")
-    if not isinstance(setup_sql, list) or not setup_sql:
-        raise ProvisioningConfigurationError("Provisioning spec requires setup_sql")
+    datasets = _resolve_datasets(spec)
+    setup_sql = spec.get("setup_sql", [])
+    if not isinstance(setup_sql, list):
+        raise ProvisioningConfigurationError("setup_sql must be a list")
     if any(not isinstance(sql, str) or not sql.strip() for sql in setup_sql):
         raise ProvisioningConfigurationError("Every setup_sql entry must be non-empty SQL")
+    if not datasets and not setup_sql:
+        raise ProvisioningConfigurationError(
+            "Provisioning requires at least one dataset template or setup_sql statement"
+        )
 
     learner = spec.get("learner", {})
     if not isinstance(learner, dict):
@@ -219,12 +256,16 @@ async def _inject_deadlock_probe(
 
 async def provision_from_spec(session_short_id: str, spec: dict) -> LabCredentials:
     validate_provisioning_spec(spec)
+    datasets = _resolve_datasets(spec)
     creds = await create_lab_identity(session_short_id)
 
     try:
         conn = await admin_connect(creds.database)
         try:
-            for statement in spec["setup_sql"]:
+            for dataset in datasets:
+                for statement in dataset["setup_sql"]:
+                    await conn.execute(statement)
+            for statement in spec.get("setup_sql", []):
                 await conn.execute(statement)
             for statement in spec.get("learner", {}).get("statements", []):
                 await conn.execute(
