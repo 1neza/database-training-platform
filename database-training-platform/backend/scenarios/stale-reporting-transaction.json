@@ -1,9 +1,11 @@
 {
   "slug": "stale-reporting-transaction",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "track_slug": "postgresql-dba",
   "title": "Stale Reporting Transaction",
   "level": "intermediate",
+  "skills": ["postgresql.activity-monitoring", "postgresql.transaction-basics", "postgresql.safe-operations"],
+  "prerequisites": [],
   "duration_minutes": 30,
   "summary": "A reporting worker left a transaction open after reading the orders table, creating an old database snapshot that should be cleared safely.",
   "incident": "11:35 — Database monitoring shows a reporting connection that has been idle in transaction far longer than expected. The application is not blocked yet, but the stale transaction can interfere with routine maintenance and vacuum progress. Identify the session, confirm it is safe to stop, and clear it without damaging production data.",
