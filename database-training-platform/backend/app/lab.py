@@ -8,6 +8,7 @@ from .config import settings
 
 
 _SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_BLOCKERS: dict[str, asyncpg.Connection] = {}
 
 
 def ident(value: str) -> str:
@@ -37,7 +38,7 @@ async def _admin_connect(database: str = "postgres"):
     )
 
 
-async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
+async def _create_lab_identity(session_short_id: str) -> LabCredentials:
     database = f"lab_{session_short_id}"
     username = f"student_{session_short_id}"
     password = secrets.token_urlsafe(18)
@@ -51,7 +52,14 @@ async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
     finally:
         await admin.close()
 
-    conn = await _admin_connect(database)
+    return LabCredentials(database=database, username=username, password=password)
+
+
+async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
+    creds = await _create_lab_identity(session_short_id)
+    username = creds.username
+
+    conn = await _admin_connect(creds.database)
     try:
         await conn.execute(f"GRANT ALL ON SCHEMA public TO {ident(username)}")
 
@@ -108,8 +116,6 @@ async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
             ('Your work is evaluated against the actual database state.');
         """)
 
-        # The learner must own the target table to create/drop indexes during the DBA lab.
-        # We preserve the other tables as admin-owned reference/support objects.
         await conn.execute(f"ALTER TABLE orders OWNER TO {ident(username)}")
         await conn.execute(f"ALTER SEQUENCE orders_id_seq OWNER TO {ident(username)}")
 
@@ -121,7 +127,53 @@ async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
     finally:
         await conn.close()
 
-    return LabCredentials(database=database, username=username, password=password)
+    return creds
+
+
+async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
+    creds = await _create_lab_identity(session_short_id)
+    username = creds.username
+
+    conn = await _admin_connect(creds.database)
+    try:
+        await conn.execute("""
+            CREATE TABLE accounts (
+                id BIGSERIAL PRIMARY KEY,
+                customer_name TEXT NOT NULL,
+                balance_cents BIGINT NOT NULL CHECK (balance_cents >= 0)
+            );
+
+            CREATE TABLE incident_notes (
+                id BIGSERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                note TEXT NOT NULL
+            );
+
+            INSERT INTO accounts(customer_name, balance_cents)
+            VALUES ('Demo Customer', 125000), ('Second Customer', 98000);
+
+            INSERT INTO incident_notes(note) VALUES
+            ('A payment update for account id 1 is waiting on a row lock.'),
+            ('Look for an unusually old idle-in-transaction session.'),
+            ('Do not delete the account or truncate tables to resolve the incident.');
+        """)
+
+        await conn.execute(f"ALTER TABLE accounts OWNER TO {ident(username)}")
+        await conn.execute(f"ALTER SEQUENCE accounts_id_seq OWNER TO {ident(username)}")
+        await conn.execute(f"""
+            GRANT SELECT ON incident_notes TO {ident(username)};
+            GRANT pg_signal_backend TO {ident(username)};
+        """)
+    finally:
+        await conn.close()
+
+    blocker = await _admin_connect(creds.database)
+    await blocker.execute("BEGIN")
+    await blocker.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
+    await blocker.execute("SET application_name = 'legacy-payment-worker'")
+    _BLOCKERS[creds.database] = blocker
+
+    return creds
 
 
 async def connect_as_admin(database: str):
@@ -129,6 +181,10 @@ async def connect_as_admin(database: str):
 
 
 async def teardown_lab(database: str, username: str):
+    blocker = _BLOCKERS.pop(database, None)
+    if blocker is not None and not blocker.is_closed():
+        await blocker.close()
+
     admin = await _admin_connect()
     try:
         await admin.execute(
