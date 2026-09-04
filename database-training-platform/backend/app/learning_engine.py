@@ -1,5 +1,6 @@
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 
 from .catalog import SCENARIOS
 from .models import SessionStatus, TrainingSession
@@ -9,7 +10,9 @@ from .skill_catalog import SKILLS
 RETRY_BOOST = 80
 FAILURE_BOOST = 12
 WEAK_SKILL_BOOST = 18
+REVIEW_DUE_BOOST = 55
 LOW_SCORE_THRESHOLD = 80
+REVIEW_INTERVALS_DAYS = (7, 21, 60, 120)
 
 
 def mastered_skills(attempts: Iterable[TrainingSession]) -> set[str]:
@@ -24,6 +27,14 @@ def mastered_skills(attempts: Iterable[TrainingSession]) -> set[str]:
     return mastered
 
 
+def _normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _attempt_evidence(attempts: list[TrainingSession]) -> dict[str, dict]:
     evidence: dict[str, dict] = defaultdict(
         lambda: {
@@ -31,6 +42,7 @@ def _attempt_evidence(attempts: list[TrainingSession]) -> dict[str, dict]:
             "failures": 0,
             "passes": 0,
             "scores": [],
+            "pass_dates": [],
         }
     )
     for attempt in attempts:
@@ -41,6 +53,9 @@ def _attempt_evidence(attempts: list[TrainingSession]) -> dict[str, dict]:
         item["attempts"] += 1
         if attempt.status == SessionStatus.PASSED:
             item["passes"] += 1
+            passed_at = _normalize_datetime(attempt.started_at)
+            if passed_at is not None:
+                item["pass_dates"].append(passed_at)
         elif attempt.status in {SessionStatus.FAILED, SessionStatus.EXPIRED}:
             item["failures"] += 1
         if attempt.score is not None:
@@ -51,6 +66,7 @@ def _attempt_evidence(attempts: list[TrainingSession]) -> dict[str, dict]:
         item["average_score"] = (
             sum(item["scores"]) / len(item["scores"]) if item["scores"] else None
         )
+        item["last_pass_at"] = max(item["pass_dates"]) if item["pass_dates"] else None
     return dict(evidence)
 
 
@@ -90,6 +106,42 @@ def _weak_skill_evidence(
     return weak
 
 
+def _review_schedule(
+    scenario_evidence: dict | None,
+    now: datetime,
+) -> dict:
+    if not scenario_evidence or scenario_evidence.get("passes", 0) <= 0:
+        return {
+            "review_due": False,
+            "review_due_at": None,
+            "review_interval_days": None,
+            "days_overdue": 0,
+        }
+
+    last_pass_at = scenario_evidence.get("last_pass_at")
+    if last_pass_at is None:
+        return {
+            "review_due": False,
+            "review_due_at": None,
+            "review_interval_days": None,
+            "days_overdue": 0,
+        }
+
+    pass_count = scenario_evidence["passes"]
+    interval = REVIEW_INTERVALS_DAYS[min(pass_count - 1, len(REVIEW_INTERVALS_DAYS) - 1)]
+    if scenario_evidence.get("failures", 0) > 0:
+        interval = max(3, interval // 2)
+
+    due_at = last_pass_at + timedelta(days=interval)
+    overdue_seconds = max(0, (now - due_at).total_seconds())
+    return {
+        "review_due": now >= due_at,
+        "review_due_at": due_at,
+        "review_interval_days": interval,
+        "days_overdue": int(overdue_seconds // 86400),
+    }
+
+
 def _recommendation_score(
     scenario: dict,
     scenario_evidence: dict | None,
@@ -123,7 +175,13 @@ def _recommendation_score(
     return score, reasons
 
 
-def build_learning_path(attempts: list[TrainingSession], track_slug: str) -> dict:
+def build_learning_path(
+    attempts: list[TrainingSession],
+    track_slug: str,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    now = _normalize_datetime(now) or datetime.now(timezone.utc)
     mastered = mastered_skills(attempts)
     passed_scenarios = {
         attempt.scenario_slug
@@ -147,14 +205,23 @@ def build_learning_path(attempts: list[TrainingSession], track_slug: str) -> dic
         else:
             state = "ready"
 
+        scenario_evidence = attempt_evidence.get(scenario["slug"])
+        review = _review_schedule(scenario_evidence, now)
         priority = 0
         reasons: list[str] = []
         if state == "ready":
             priority, reasons = _recommendation_score(
                 scenario,
-                attempt_evidence.get(scenario["slug"]),
+                scenario_evidence,
                 weak_evidence,
             )
+        elif state == "completed" and review["review_due"]:
+            priority = REVIEW_DUE_BOOST + min(review["days_overdue"], 30)
+            reasons = [
+                f"review this skill after {review['review_interval_days']} day(s)",
+            ]
+            if review["days_overdue"] > 0:
+                reasons.append(f"review is {review['days_overdue']} day(s) overdue")
 
         readiness.append({
             "scenario_slug": scenario["slug"],
@@ -167,13 +234,21 @@ def build_learning_path(attempts: list[TrainingSession], track_slug: str) -> dic
             "recommended": False,
             "recommendation_priority": priority,
             "recommendation_reasons": reasons,
+            "review_due": review["review_due"],
+            "review_due_at": review["review_due_at"],
+            "review_interval_days": review["review_interval_days"],
         })
 
-    candidates = [item for item in readiness if item["state"] == "ready"]
+    candidates = [
+        item
+        for item in readiness
+        if item["state"] == "ready" or item["review_due"]
+    ]
     if candidates:
         candidates.sort(
             key=lambda item: (
                 -item["recommendation_priority"],
+                0 if item["state"] == "ready" else 1,
                 len(item["prerequisites"]),
                 SCENARIOS[item["scenario_slug"]]["duration_minutes"],
                 item["scenario_title"],
@@ -203,6 +278,7 @@ def build_learning_path(attempts: list[TrainingSession], track_slug: str) -> dic
 
     readiness.sort(
         key=lambda item: (
+            0 if item["recommended"] else 1,
             {"ready": 0, "locked": 1, "completed": 2}[item["state"]],
             -item["recommendation_priority"],
             item["scenario_title"],
