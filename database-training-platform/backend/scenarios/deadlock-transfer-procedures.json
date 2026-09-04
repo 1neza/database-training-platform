@@ -1,9 +1,10 @@
 {
   "slug": "deadlock-transfer-procedures",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "track_slug": "postgresql-dba",
   "title": "Deadlocking Transfer Procedures",
   "level": "intermediate-advanced",
+  "difficulty": 4,
   "skills": ["postgresql.deadlocks", "postgresql.locking", "postgresql.safe-operations"],
   "prerequisites": ["postgresql.locking"],
   "duration_minutes": 40,
