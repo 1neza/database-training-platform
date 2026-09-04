@@ -1,0 +1,77 @@
+{
+  "slug": "logical-backup-restore",
+  "version": "1.0.0",
+  "track_slug": "postgresql-dba",
+  "title": "Logical Backup Restore",
+  "level": "intermediate",
+  "difficulty": 3,
+  "skills": ["postgresql.backup-restore", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.safe-operations"],
+  "duration_minutes": 35,
+  "summary": "An accidental delete removed part of a customer accounts table, but a recent logical backup snapshot is available for selective recovery.",
+  "incident": "15:05 — A maintenance script accidentally deleted 250 customer account rows. A read-only logical backup snapshot from shortly before the incident still contains all 2,000 records. Restore only the missing rows, preserve valid live data, and leave the backup source untouched.",
+  "objectives": [
+    "Compare the live table with the backup snapshot.",
+    "Identify exactly which account IDs are missing.",
+    "Restore only the missing rows rather than replacing the whole live table.",
+    "Verify row counts and balance totals match the backup after recovery.",
+    "Preserve the backup snapshot unchanged."
+  ],
+  "hints": [
+    "Compare IDs with a LEFT JOIN or NOT EXISTS query before restoring anything.",
+    "The backup snapshot is read-only by design; restore into the live table.",
+    "An INSERT ... SELECT with NOT EXISTS can restore only rows that are actually missing."
+  ],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE customer_accounts (id BIGINT PRIMARY KEY, customer_name TEXT NOT NULL, balance_cents BIGINT NOT NULL CHECK (balance_cents >= 0), status TEXT NOT NULL); INSERT INTO customer_accounts(id, customer_name, balance_cents, status) SELECT gs, 'Customer ' || gs, 10000 + (gs * 37 % 250000), CASE WHEN gs % 11 = 0 THEN 'review' ELSE 'active' END FROM generate_series(1, 2000) AS gs; CREATE TABLE customer_accounts_backup AS TABLE customer_accounts; ALTER TABLE customer_accounts_backup ADD PRIMARY KEY (id); DELETE FROM customer_accounts WHERE id BETWEEN 751 AND 1000; CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, note TEXT NOT NULL); INSERT INTO incident_notes(note) VALUES ('A logical snapshot was taken before the accidental delete and contains 2,000 accounts.'), ('Exactly 250 live rows are missing: restore them selectively.'), ('Do not overwrite valid live rows or modify the backup snapshot.');"
+    ],
+    "learner": {
+      "statements": [
+        "ALTER TABLE customer_accounts OWNER TO {learner}",
+        "GRANT SELECT ON customer_accounts_backup, incident_notes TO {learner}"
+      ]
+    },
+    "roles": [],
+    "faults": []
+  },
+  "evaluation": {
+    "checks": [
+      {
+        "type": "row_count",
+        "name": "All customer accounts restored",
+        "table": "customer_accounts",
+        "operator": "eq",
+        "expected": 2000,
+        "points": 30,
+        "feedback": "The live table still does not contain exactly 2,000 customer accounts."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "No backup account IDs are missing",
+        "sql": "SELECT count(*) FROM customer_accounts_backup b WHERE NOT EXISTS (SELECT 1 FROM customer_accounts a WHERE a.id = b.id)",
+        "expected": 0,
+        "points": 25,
+        "feedback": "Some account IDs from the backup snapshot are still missing from the live table."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Live balances match backup",
+        "sql": "SELECT (SELECT sum(balance_cents) FROM customer_accounts) = (SELECT sum(balance_cents) FROM customer_accounts_backup)",
+        "expected": true,
+        "points": 25,
+        "feedback": "The restored live balance total does not match the backup snapshot."
+      },
+      {
+        "type": "row_count",
+        "name": "Backup snapshot preserved",
+        "table": "customer_accounts_backup",
+        "operator": "eq",
+        "expected": 2000,
+        "points": 20,
+        "feedback": "The backup snapshot must remain intact with all 2,000 rows."
+      }
+    ],
+    "success_feedback": "The missing customer accounts were selectively restored, live balances match the backup, and the recovery snapshot remains intact."
+  }
+}
