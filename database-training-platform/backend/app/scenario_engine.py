@@ -2,11 +2,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from .catalog import SCENARIOS
-from .evaluator import (
-    evaluate_blocked_payment,
-    evaluate_connection_pressure,
-    evaluate_slow_checkout,
-)
+from .evaluation_engine import evaluate_checks, validate_evaluation_spec
 from .lab import (
     LabCredentials,
     provision_blocked_payment,
@@ -15,7 +11,6 @@ from .lab import (
 )
 
 Provisioner = Callable[[str], Awaitable[LabCredentials]]
-Evaluator = Callable[[str], Awaitable[dict]]
 
 
 class ScenarioConfigurationError(RuntimeError):
@@ -25,19 +20,12 @@ class ScenarioConfigurationError(RuntimeError):
 @dataclass(frozen=True)
 class ScenarioRuntime:
     provisioner: Provisioner
-    evaluator: Evaluator
 
 
 PROVISIONERS: dict[str, Provisioner] = {
     "slow_checkout": provision_slow_checkout,
     "blocked_payment": provision_blocked_payment,
     "connection_pressure": provision_connection_pressure,
-}
-
-EVALUATORS: dict[str, Evaluator] = {
-    "slow_checkout": evaluate_slow_checkout,
-    "blocked_payment": evaluate_blocked_payment,
-    "connection_pressure": evaluate_connection_pressure,
 }
 
 
@@ -57,8 +45,6 @@ def get_scenario_runtime(scenario_slug: str) -> ScenarioRuntime:
         )
 
     provisioner_name = runtime.get("provisioner")
-    evaluator_name = runtime.get("evaluator")
-
     try:
         provisioner = PROVISIONERS[provisioner_name]
     except KeyError as exc:
@@ -66,14 +52,7 @@ def get_scenario_runtime(scenario_slug: str) -> ScenarioRuntime:
             f"Scenario {scenario_slug!r} references unknown provisioner {provisioner_name!r}"
         ) from exc
 
-    try:
-        evaluator = EVALUATORS[evaluator_name]
-    except KeyError as exc:
-        raise ScenarioConfigurationError(
-            f"Scenario {scenario_slug!r} references unknown evaluator {evaluator_name!r}"
-        ) from exc
-
-    return ScenarioRuntime(provisioner=provisioner, evaluator=evaluator)
+    return ScenarioRuntime(provisioner=provisioner)
 
 
 async def provision_scenario(scenario_slug: str, session_short_id: str) -> LabCredentials:
@@ -82,10 +61,21 @@ async def provision_scenario(scenario_slug: str, session_short_id: str) -> LabCr
 
 
 async def evaluate_scenario(scenario_slug: str, database: str) -> dict:
-    runtime = get_scenario_runtime(scenario_slug)
-    return await runtime.evaluator(database)
+    scenario = get_scenario_definition(scenario_slug)
+    evaluation = scenario.get("evaluation")
+    if not isinstance(evaluation, dict):
+        raise ScenarioConfigurationError(
+            f"Scenario {scenario_slug!r} is missing an evaluation configuration"
+        )
+    return await evaluate_checks(database, evaluation)
 
 
 def validate_scenario_catalog() -> None:
-    for scenario_slug in SCENARIOS:
+    for scenario_slug, scenario in SCENARIOS.items():
         get_scenario_runtime(scenario_slug)
+        evaluation = scenario.get("evaluation")
+        if not isinstance(evaluation, dict):
+            raise ScenarioConfigurationError(
+                f"Scenario {scenario_slug!r} is missing an evaluation configuration"
+            )
+        validate_evaluation_spec(evaluation)
