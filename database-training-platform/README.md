@@ -10,9 +10,10 @@ The MVP currently includes:
 
 - PostgreSQL DBA scenario catalog and selectable learner UI
 - per-session PostgreSQL database and generated learner login
-- realistic synthetic datasets and application/service roles
+- realistic synthetic datasets and generated application/service roles
 - timed incidents, objectives and hints
 - deterministic 100-point grading against the live database
+- declarative scenario provisioning and reusable fault injection
 - declarative scenario evaluation rules
 - explicit lab teardown and return-to-catalog flow
 - React + Vite learner dashboard
@@ -51,6 +52,15 @@ Grading checks include:
 - service configuration preserved
 - database remains responsive
 
+### 4. Deadlocking Transfer Procedures
+
+Two payment transfer functions acquire row locks on the same pair of accounts in opposite order. Provisioning executes both paths concurrently and requires PostgreSQL to reproduce a real `deadlock detected` failure before the learner receives the lab. The learner inspects the functions, makes lock acquisition order consistent and submits the environment for a concurrent replay.
+
+Grading checks include:
+- both transfer paths complete concurrently without SQLSTATE `40P01`
+- both account rows remain present
+- total account balance remains unchanged
+
 ## Run locally
 
 From this project directory:
@@ -81,7 +91,7 @@ psql -h localhost -p 55432 -U <generated_user> -d <generated_database>
 6. Apply a safe fix to the real lab environment.
 7. Click **Evaluate environment**.
 8. Review the objective checks, score and feedback.
-9. Finish the lab; the platform tears down its database and roles and returns to the catalog.
+9. Finish the lab; the platform tears down its database and generated roles and returns to the catalog.
 
 ## Architecture
 
@@ -94,19 +104,30 @@ React / Vite learner UI
           |       session metadata / results
           |
           +---- Scenario Engine
-          |       provisioner registry
+          |       declarative provisioning engine
+          |       reusable fault injectors
           |       declarative grading engine
           |
           +---- Lab PostgreSQL
                   database + learner role per session
-                  optional simulated service roles/sessions
+                  optional generated service roles/sessions
 ```
 
 ### Scenario engine
 
-Scenario metadata lives in `backend/app/catalog.py`. API routing is scenario-agnostic: a scenario references a registered provisioner and declares its grading checks as data.
+Scenario definitions live in `backend/app/catalog.py`. API routing is scenario-agnostic: each scenario contains provisioning and evaluation specifications as data rather than requiring API-specific branching.
 
-Current reusable grading primitives include:
+Provisioning currently supports:
+
+- ordered setup SQL
+- learner ownership/grant statements
+- generated non-superuser service roles
+- persistent `idle in transaction` row-lock injection
+- runaway connection-pool injection
+- concurrent deadlock reproduction with incident evidence
+- generic runtime connection and role teardown
+
+Reusable grading primitives currently include:
 
 - `index_prefix`
 - `query_plan_uses_index`
@@ -114,10 +135,11 @@ Current reusable grading primitives include:
 - `session_count`
 - `scalar_equals`
 - `query_succeeds`
+- `concurrent_sql_no_deadlock`
 
-Each scenario's checks must total 100 points. Application startup validates the complete catalog and fails fast if a scenario has an unsupported provisioner, unsupported check or invalid score total.
+Each scenario's checks must total 100 points. Application startup validates the complete catalog and fails fast on invalid provisioning references, unsupported fault types, unsupported grading checks or incorrect point totals.
 
-This keeps the AI layer optional. An LLM can later act as a manager, coworker, mentor or postmortem reviewer, but the technical pass/fail decision is grounded in PostgreSQL state.
+This keeps the AI layer optional. An LLM can later act as a manager, coworker, mentor or postmortem reviewer, but the technical pass/fail decision is grounded in PostgreSQL state and repeatable workloads.
 
 ## Testing
 
@@ -129,7 +151,9 @@ GitHub Actions validates:
 - Vite production frontend build
 - Docker Compose configuration
 
-The integration suite actually provisions each implemented incident, confirms its initial state fails grading, performs the expected learner-style remediation and verifies the environment reaches 100/100 before teardown.
+The integration suite provisions every implemented incident through the same generic scenario path used by the API, confirms the initial environment fails grading, performs the expected learner-style remediation and verifies the environment reaches 100/100 before teardown.
+
+The deadlock integration test also confirms the database actually emits a PostgreSQL deadlock between `transfer_forward()` and `transfer_reverse()` before the learner fix.
 
 ## Reset local state
 
@@ -141,8 +165,9 @@ docker compose down -v
 
 Near-term priorities are:
 
-- more DBA incidents: deadlocks, permissions, failed migrations, backup/restore, disk pressure and VACUUM/bloat
-- more declarative provisioning/fault-injection primitives
+- move scenario definitions from the Python catalog into validated YAML/JSON files
+- add scenario reset/replay and versioning
+- more DBA incidents: long-running transactions, permissions, failed migrations, backup/restore, disk pressure and VACUUM/bloat
 - persistent learner progress and skill graph
 - scenario prerequisites and adaptive recommendations
 - stronger per-lab isolation using disposable containers or namespaces
