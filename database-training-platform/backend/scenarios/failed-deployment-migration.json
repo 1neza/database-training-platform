@@ -1,0 +1,77 @@
+{
+  "slug": "failed-deployment-migration",
+  "version": "1.0.0",
+  "track_slug": "postgresql-dba",
+  "title": "Failed Deployment Migration",
+  "level": "intermediate",
+  "difficulty": 3,
+  "skills": ["postgresql.schema-migrations", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.safe-operations"],
+  "duration_minutes": 35,
+  "summary": "A deployment partially added a required column, leaving some production rows unbackfilled and the migration marked failed.",
+  "incident": "13:20 — A checkout deployment failed during a schema migration. The new fulfillment_channel column exists, but some rows are still NULL and the migration ledger is marked failed. Complete the migration safely without losing orders, then verify the schema matches the intended contract.",
+  "objectives": [
+    "Inspect the current table definition and migration ledger.",
+    "Identify the partially applied column and remaining NULL values.",
+    "Backfill the missing production rows safely.",
+    "Enforce the intended NOT NULL schema contract.",
+    "Mark the migration applied only after the data and schema are correct."
+  ],
+  "hints": [
+    "Inspect information_schema.columns or \\d checkout_orders before changing anything.",
+    "The deployment already backfilled most rows; only the remaining NULL values need remediation.",
+    "Do not drop the column or delete orders just to satisfy the constraint."
+  ],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE checkout_orders (id BIGINT PRIMARY KEY, customer_id BIGINT NOT NULL, status TEXT NOT NULL, total_cents INTEGER NOT NULL CHECK (total_cents >= 0)); CREATE TABLE deployment_migrations (migration_id TEXT PRIMARY KEY, status TEXT NOT NULL, detail TEXT NOT NULL); INSERT INTO checkout_orders(id, customer_id, status, total_cents) SELECT gs, (gs % 500) + 1, CASE WHEN gs % 4 = 0 THEN 'paid' ELSE 'pending' END, 1500 + (gs % 7000) FROM generate_series(1, 5000) AS gs; ALTER TABLE checkout_orders ADD COLUMN fulfillment_channel TEXT; UPDATE checkout_orders SET fulfillment_channel = CASE WHEN id % 2 = 0 THEN 'warehouse' ELSE 'dropship' END WHERE id <= 4500; INSERT INTO deployment_migrations(migration_id, status, detail) VALUES ('20260904_add_fulfillment_channel', 'failed', 'Column created and partial backfill completed; NOT NULL step was not reached.'); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, note TEXT NOT NULL); INSERT INTO incident_notes(note) VALUES ('Expected final contract: checkout_orders.fulfillment_channel must be NOT NULL.'), ('Preserve all 5000 checkout orders.'), ('Update the migration ledger only after the schema is safe.');"
+    ],
+    "learner": {
+      "statements": [
+        "ALTER TABLE checkout_orders OWNER TO {learner}",
+        "GRANT SELECT, UPDATE ON deployment_migrations TO {learner}",
+        "GRANT SELECT ON incident_notes TO {learner}"
+      ]
+    },
+    "roles": [],
+    "faults": []
+  },
+  "evaluation": {
+    "checks": [
+      {
+        "type": "row_count",
+        "name": "Checkout orders preserved",
+        "table": "checkout_orders",
+        "operator": "eq",
+        "expected": 5000,
+        "points": 20,
+        "feedback": "All 5000 production-style checkout orders must remain present."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Fulfillment data fully backfilled",
+        "sql": "SELECT count(*) FROM checkout_orders WHERE fulfillment_channel IS NULL",
+        "expected": 0,
+        "points": 30,
+        "feedback": "Some checkout orders still have NULL fulfillment_channel values. Backfill them before enforcing the constraint."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "NOT NULL contract enforced",
+        "sql": "SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'checkout_orders' AND column_name = 'fulfillment_channel'",
+        "expected": "NO",
+        "points": 30,
+        "feedback": "The fulfillment_channel column is still nullable. Enforce the intended NOT NULL contract after backfilling the remaining rows."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Migration ledger marked applied",
+        "sql": "SELECT status FROM deployment_migrations WHERE migration_id = '20260904_add_fulfillment_channel'",
+        "expected": "applied",
+        "points": 20,
+        "feedback": "The migration ledger is not marked applied. Update it only after the data and schema checks are complete."
+      }
+    ],
+    "success_feedback": "The partial deployment migration is now complete: production rows are preserved, fulfillment_channel is fully backfilled and NOT NULL, and the migration ledger records a successful application."
+  }
+}
