@@ -1,0 +1,33 @@
+{
+  "slug": "excessive-analytics-privileges",
+  "version": "1.0.0",
+  "track_slug": "postgresql-dba",
+  "title": "Excessive Analytics Privileges",
+  "level": "intermediate",
+  "difficulty": 3,
+  "skills": ["postgresql.roles-privileges", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.safe-operations"],
+  "duration_minutes": 30,
+  "summary": "A read-only analytics export service was accidentally granted write access to customer export data. Audit the role and restore least privilege without breaking reads.",
+  "incident": "10:20 — A security review found that the analytics export service can modify the customer_exports table even though its documented function is read-only reporting. Identify the service role's current table privileges, remove unnecessary write permissions, preserve its required SELECT access, and verify no customer export rows are changed or deleted.",
+  "objectives": ["Inspect table grants and identify the analytics export role.", "Determine which privileges exceed the service's read-only policy.", "Revoke INSERT, UPDATE, and DELETE from the analytics role while preserving SELECT.", "Verify the customer export dataset remains intact."],
+  "hints": ["information_schema.role_table_grants shows explicit table privileges.", "Look for a generated role whose name starts with analytics_export_.", "The correct remediation changes grants only; do not drop the role or table."],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE customer_exports (id BIGSERIAL PRIMARY KEY, customer_ref TEXT NOT NULL UNIQUE, region TEXT NOT NULL, lifetime_value_cents BIGINT NOT NULL CHECK (lifetime_value_cents >= 0)); CREATE TABLE access_policy (service_name TEXT PRIMARY KEY, required_access TEXT NOT NULL); INSERT INTO customer_exports(customer_ref, region, lifetime_value_cents) SELECT 'cust-' || g, (ARRAY['EU','NA','APAC'])[1 + ((g - 1) % 3)], 10000 + (g * 37) FROM generate_series(1, 200) AS g; INSERT INTO access_policy(service_name, required_access) VALUES ('analytics-export', 'SELECT only');"
+    ],
+    "learner": {"statements": ["ALTER TABLE customer_exports OWNER TO {learner}", "ALTER SEQUENCE customer_exports_id_seq OWNER TO {learner}", "GRANT SELECT ON access_policy TO {learner}"]},
+    "roles": [
+      {"alias": "analytics", "prefix": "analytics_export", "statements": ["GRANT CONNECT ON DATABASE {database} TO {role}", "GRANT USAGE ON SCHEMA public TO {role}", "GRANT SELECT, INSERT, UPDATE, DELETE ON customer_exports TO {role}"]}
+    ],
+    "faults": []
+  },
+  "evaluation": {
+    "checks": [
+      {"type": "scalar_equals", "name": "Required SELECT access preserved", "sql": "SELECT EXISTS (SELECT 1 FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'customer_exports' AND grantee LIKE 'analytics_export_%' AND privilege_type = 'SELECT')", "expected": true, "points": 30, "feedback": "The analytics export service still needs SELECT access to customer_exports."},
+      {"type": "scalar_equals", "name": "Write privileges removed", "sql": "SELECT NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'customer_exports' AND grantee LIKE 'analytics_export_%' AND privilege_type IN ('INSERT','UPDATE','DELETE'))", "expected": true, "points": 50, "feedback": "The analytics role still has one or more unnecessary write privileges. Revoke INSERT, UPDATE, and DELETE while preserving SELECT."},
+      {"type": "row_count", "name": "Customer export data preserved", "table": "customer_exports", "operator": "eq", "expected": 200, "points": 20, "feedback": "The access-control incident must be fixed without deleting customer export records."}
+    ],
+    "success_feedback": "The analytics export service is read-only again: SELECT remains available, write privileges are removed, and the customer export dataset is intact."
+  }
+}
