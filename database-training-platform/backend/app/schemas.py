@@ -30,6 +30,12 @@ class SkillOut(BaseModel):
     description: str
 
 
+class WeakSkillOut(SkillOut):
+    attempts: int
+    failures: int
+    average_score: float | None = None
+
+
 class ScenarioReadinessOut(BaseModel):
     scenario_slug: str
     scenario_title: str
@@ -39,11 +45,14 @@ class ScenarioReadinessOut(BaseModel):
     prerequisites: list[str]
     missing_prerequisites: list[str]
     recommended: bool
+    recommendation_priority: int
+    recommendation_reasons: list[str]
 
 
 class LearningPathOut(BaseModel):
     track_slug: str
     mastered_skills: list[SkillOut]
+    weak_skills: list[WeakSkillOut]
     scenarios: list[ScenarioReadinessOut]
 
 
