@@ -1,9 +1,11 @@
 {
   "slug": "deadlock-transfer-procedures",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "track_slug": "postgresql-dba",
   "title": "Deadlocking Transfer Procedures",
   "level": "intermediate-advanced",
+  "skills": ["postgresql.deadlocks", "postgresql.locking", "postgresql.safe-operations"],
+  "prerequisites": ["postgresql.locking"],
   "duration_minutes": 40,
   "summary": "Two payment procedures lock account rows in opposite order, causing PostgreSQL to abort one transaction with a deadlock.",
   "incident": "18:05 — Payment workers intermittently fail with PostgreSQL deadlock errors during opposing transfers. The failure is reproducible under concurrency. Find the inconsistent lock ordering, implement a safe database-side fix, and prove both transfer paths can run concurrently.",
