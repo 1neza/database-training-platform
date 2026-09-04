@@ -11,6 +11,7 @@ from .catalog import SCENARIOS, TRACKS
 from .config import settings
 from .db import Base, engine, get_db
 from .lab import teardown_lab
+from .learning_engine import build_learning_path
 from .models import LearnerAttemptLink, LearnerProfile, SessionStatus, TrainingSession
 from .scenario_engine import (
     evaluate_scenario_definition,
@@ -23,17 +24,20 @@ from .schemas import (
     EvaluationOut,
     LearnerOut,
     LearnerProgressOut,
+    LearningPathOut,
     ScenarioOut,
     ScenarioProgressOut,
     SessionOut,
+    SkillOut,
     StartSessionIn,
     TrackOut,
 )
+from .skill_catalog import SKILLS
 
 
 app = FastAPI(
     title="Database Training Platform",
-    version="0.4.0",
+    version="0.5.0",
     description="Operate real databases under timed production scenarios.",
 )
 
@@ -286,9 +290,34 @@ async def learner_progress(learner_id: uuid.UUID, db: AsyncSession = Depends(get
     )
 
 
+@app.get("/learners/{learner_id}/learning-path", response_model=LearningPathOut)
+async def learner_learning_path(
+    learner_id: uuid.UUID,
+    track: str = "postgresql-dba",
+    db: AsyncSession = Depends(get_db),
+):
+    learner = await db.get(LearnerProfile, learner_id)
+    if not learner:
+        raise HTTPException(404, "Learner not found")
+    if track not in {item["slug"] for item in TRACKS}:
+        raise HTTPException(404, "Track not found")
+    return build_learning_path(await _learner_attempt_rows(learner_id, db), track)
+
+
 @app.get("/tracks", response_model=list[TrackOut])
 async def list_tracks():
     return TRACKS
+
+
+@app.get("/skills", response_model=list[SkillOut])
+async def list_skills(track: str | None = None):
+    skills = list(SKILLS.values())
+    if track:
+        skills = [skill for skill in skills if skill["track_slug"] == track]
+    return [
+        SkillOut(slug=skill["slug"], name=skill["name"], description=skill["description"])
+        for skill in skills
+    ]
 
 
 @app.get("/scenarios", response_model=list[ScenarioOut])
@@ -328,6 +357,17 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
         if not learner:
             raise HTTPException(404, "Learner not found")
         learner_name = learner.display_name
+
+        path = build_learning_path(
+            await _learner_attempt_rows(learner.id, db),
+            scenario["track_slug"],
+        )
+        readiness = next(
+            item for item in path["scenarios"] if item["scenario_slug"] == payload.scenario_slug
+        )
+        if readiness["state"] == "locked":
+            missing = ", ".join(readiness["missing_prerequisites"])
+            raise HTTPException(409, f"Scenario prerequisites are not mastered: {missing}")
 
     sid = uuid.uuid4()
     creds = await provision_scenario(payload.scenario_slug, sid.hex[:10])
