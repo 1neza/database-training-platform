@@ -134,12 +134,20 @@ async def evaluate_blocked_payment(database: str) -> dict:
         else:
             feedback.append("Production-style account data must remain intact; deleting rows is not a valid incident response.")
 
+        row_writable = False
         try:
-            await conn.execute("SET LOCAL lock_timeout = '500ms'")
+            # Use a session-level timeout so the evaluator itself can never hang
+            # while probing the deliberately locked row.
+            await conn.execute("SET lock_timeout = '500ms'")
             await conn.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
             row_writable = True
         except Exception:
             row_writable = False
+        finally:
+            try:
+                await conn.execute("SET lock_timeout = DEFAULT")
+            except Exception:
+                pass
 
         checks.append({
             "name": "Affected payment row is writable",
