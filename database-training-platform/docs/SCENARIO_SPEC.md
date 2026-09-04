@@ -1,83 +1,67 @@
 # Scenario Authoring Specification
 
-Scenario definitions live in `backend/scenarios/*.json`. `backend/app/catalog.py` only discovers and loads those files; the API remains scenario-agnostic.
+Scenario definitions live in `backend/scenarios/*.json`. The loader discovers them automatically; API routing remains scenario-agnostic.
 
-Each file name must match its scenario slug. For example:
-
-```text
-backend/scenarios/connection-pool-exhaustion.json
-```
-
-must contain:
+Each filename must match the scenario slug, and every scenario declares a semantic version:
 
 ```json
 {
-  "slug": "connection-pool-exhaustion"
+  "slug": "slow-checkout-query",
+  "version": "1.2.0"
 }
 ```
 
-A simplified scenario looks like this:
+Versions use `MAJOR.MINOR.PATCH`. Bump the scenario version when provisioning, learner behavior, workload references or grading semantics change.
+
+## Scenario structure
+
+A scenario contains:
+
+- learner-facing metadata
+- provisioning specification
+- optional references to versioned reusable datasets
+- generated roles and fault definitions
+- deterministic evaluation checks
+- optional references to versioned named workloads
+
+Example:
 
 ```json
 {
-  "slug": "connection-pool-exhaustion",
+  "slug": "slow-checkout-query",
+  "version": "1.2.0",
   "track_slug": "postgresql-dba",
-  "title": "Connection Pool Exhaustion",
-  "level": "intermediate",
-  "duration_minutes": 30,
-  "summary": "A runaway application pool opened too many sessions.",
-  "incident": "New API requests intermittently fail...",
-  "objectives": ["Inspect activity", "Reduce pressure", "Verify recovery"],
-  "hints": ["Group pg_stat_activity by application_name."],
+  "title": "Slow Checkout Query",
+  "level": "beginner-intermediate",
+  "duration_minutes": 45,
+  "summary": "Checkout latency increased after the orders table grew.",
+  "incident": "Checkout requests are taking several seconds...",
+  "objectives": ["Inspect the plan", "Apply a safe fix", "Verify recovery"],
+  "hints": ["Inspect existing indexes."],
   "provisioning": {
-    "setup_sql": [
-      "CREATE TABLE service_config (...);",
-      "INSERT INTO service_config (...) VALUES (...);"
+    "datasets": [
+      {"slug": "ecommerce-orders-medium", "version": "1.0.0"}
     ],
+    "setup_sql": ["CREATE TABLE incident_notes (...);"],
     "learner": {
-      "statements": [
-        "GRANT SELECT ON service_config TO {learner}",
-        "GRANT pg_signal_backend TO {learner}"
-      ]
+      "statements": ["ALTER TABLE orders OWNER TO {learner}"]
     },
-    "roles": [
-      {
-        "alias": "pool",
-        "prefix": "pool",
-        "statements": [
-          "GRANT CONNECT ON DATABASE {database} TO {role}"
-        ]
-      }
-    ],
-    "faults": [
-      {
-        "type": "connection_pool",
-        "role": "pool",
-        "application_name": "checkout-api-pool",
-        "count": 12,
-        "warmup_sql": "SELECT 1"
-      }
-    ]
+    "roles": [],
+    "faults": []
   },
   "evaluation": {
     "checks": [
       {
-        "type": "session_count",
-        "name": "Runaway pool reduced",
-        "filters": {"application_name": "checkout-api-pool"},
-        "operator": "lte",
-        "expected": 3,
-        "points": 65
-      },
-      {
-        "type": "scalar_equals",
-        "name": "Database remains responsive",
-        "sql": "SELECT 1",
-        "expected": 1,
-        "points": 35
+        "type": "query_plan_uses_index",
+        "name": "Challenge query uses an index",
+        "sql_ref": {
+          "workload": "checkout-customer-history",
+          "version": "1.0.0",
+          "statement": "recent_orders"
+        },
+        "points": 100
       }
-    ],
-    "success_feedback": "Connection pressure is back within the expected range."
+    ]
   }
 }
 ```
@@ -87,6 +71,7 @@ A simplified scenario looks like this:
 Every scenario must provide:
 
 - `slug`
+- `version`
 - `track_slug`
 - `title`
 - `level`
@@ -98,13 +83,37 @@ Every scenario must provide:
 - `provisioning`
 - `evaluation`
 
-The referenced `track_slug` must exist in the platform track catalog.
+The referenced track must exist in the platform track catalog.
+
+## Dataset templates
+
+Reusable datasets live in `backend/datasets/*.json` and are referenced by exact slug/version pairs.
+
+Current example:
+
+```json
+{
+  "slug": "ecommerce-orders-medium",
+  "version": "1.0.0",
+  "setup_sql": ["CREATE TABLE ...", "INSERT ..."]
+}
+```
+
+A scenario can reference it with:
+
+```json
+"datasets": [
+  {"slug": "ecommerce-orders-medium", "version": "1.0.0"}
+]
+```
+
+Dataset SQL runs before scenario-specific `setup_sql`. This allows several incidents to reuse the same realistic data model while keeping incident-specific setup small.
 
 ## Provisioning
 
-`setup_sql` is executed in order by the lab administrator inside the newly created per-session database.
+Scenario `setup_sql` is executed after referenced dataset templates.
 
-`learner.statements` can use these trusted placeholders:
+`learner.statements` can use:
 
 - `{learner}` — safely quoted generated learner role
 - `{database}` — safely quoted generated lab database
@@ -115,31 +124,59 @@ Generated service-role statements can also use:
 
 ### Service roles
 
-Each entry in `roles` defines:
+Each `roles` entry defines:
 
-- `alias` — stable name used by fault definitions
-- `prefix` — prefix for the generated PostgreSQL role name
-- `statements` — grants/setup executed for that role
+- `alias` — stable identifier referenced by faults
+- `prefix` — generated PostgreSQL role-name prefix
+- `statements` — grants/setup for the generated role
 
-Passwords and concrete role names are generated per lab and removed during teardown.
+Generated role names/passwords are unique to a lab and removed during teardown.
 
-### Supported fault primitives
+### Fault primitives
 
 #### `idle_transaction_lock`
 
-Keeps a generated service connection open after running configured statements such as `BEGIN` and an `UPDATE`. Used by the blocked-payment lab.
+Keeps a generated service connection open after configured statements. It can model either a row-lock blocker or a stale read-only transaction.
 
 #### `connection_pool`
 
-Creates a configured number of persistent service sessions with a shared `application_name`. Used by the connection-exhaustion lab.
+Creates a configured number of persistent application sessions sharing an `application_name`.
 
 #### `concurrent_deadlock_probe`
 
-Runs exactly two SQL statements concurrently through a generated non-superuser service role and requires PostgreSQL to produce a real deadlock (`SQLSTATE 40P01`). Optional `event_sql` records evidence after reproduction. Used by the deadlocking-transfer lab.
+Runs two configured SQL paths concurrently and requires PostgreSQL to reproduce `SQLSTATE 40P01`. Optional `event_sql` can record incident evidence.
+
+## Workload templates
+
+Reusable named SQL workloads live in `backend/workloads/*.json`.
+
+Example:
+
+```json
+{
+  "slug": "checkout-customer-history",
+  "version": "1.0.0",
+  "statements": {
+    "recent_orders": "SELECT ..."
+  }
+}
+```
+
+Evaluation checks that normally accept `sql` can instead use:
+
+```json
+"sql_ref": {
+  "workload": "checkout-customer-history",
+  "version": "1.0.0",
+  "statement": "recent_orders"
+}
+```
+
+This keeps canonical application SQL in one reusable place and allows future load generators to reuse the same named workload.
 
 ## Evaluation
 
-Every evaluation check has a positive point value, and configured checks must total exactly 100 points.
+Every evaluation check has positive points and all checks must total exactly 100.
 
 Supported grading primitives:
 
@@ -151,24 +188,33 @@ Supported grading primitives:
 - `query_succeeds`
 - `concurrent_sql_no_deadlock`
 
-`concurrent_sql_no_deadlock` opens two independent administrator connections, executes the configured statements concurrently and fails when PostgreSQL returns `40P01` or another database error.
+Checks accepting SQL can use inline `sql` or a supported `sql_ref`, but not both.
+
+## Attempt versioning and replay
+
+When an attempt starts, the backend stores an immutable snapshot of the complete scenario definition inside the attempt record. This protects historical grading semantics if the live scenario file later changes.
+
+- finishing an attempt destroys its PostgreSQL runtime but preserves the attempt/evaluation record
+- replay creates a fresh attempt linked to the previous attempt
+- replay intentionally uses the current scenario version
+- the previous attempt remains associated with the exact scenario snapshot it originally used
 
 ## Validation workflow
 
-Run this from `database-training-platform/backend` before committing a scenario:
+From `database-training-platform/backend` run:
 
 ```bash
 python -m app.validate_scenarios
 ```
 
-The validator checks file loading, filename/slug consistency, required metadata, track references, provisioning structure, service-role/fault references, supported grading checks and the 100-point score total.
+Validation checks:
 
-GitHub Actions runs the same validator before backend compilation and the live PostgreSQL integration suite. This gives scenario changes three gates:
+1. JSON loading and filename/slug consistency.
+2. Required metadata and semantic versions.
+3. Track references.
+4. Dataset references and exact versions.
+5. Provisioning structure and service-role/fault references.
+6. Workload SQL references and exact versions.
+7. Supported grading primitives and 100-point totals.
 
-1. JSON loading.
-2. Static scenario validation.
-3. Runtime PostgreSQL tests.
-
-## Next authoring steps
-
-The next improvements are scenario versioning, reset/replay, and reusable named dataset/workload templates so scenario JSON becomes smaller and easier to compose.
+GitHub Actions repeats validation before compilation and real PostgreSQL integration tests.

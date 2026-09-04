@@ -8,19 +8,21 @@ The core product principle is simple: **learn database engineering by doing the 
 
 The MVP currently includes:
 
-- PostgreSQL DBA scenario catalog and selectable learner UI
-- per-session PostgreSQL database and generated learner login
-- realistic synthetic datasets and generated application/service roles
+- five real PostgreSQL DBA incidents
+- selectable React/Vite learner catalog
+- per-attempt PostgreSQL database and generated learner login
 - timed incidents, objectives and hints
-- deterministic 100-point grading against the live database
-- file-authored JSON scenario definitions
-- declarative scenario provisioning and reusable fault injection
-- declarative scenario evaluation rules
+- deterministic 100-point grading against live PostgreSQL state
+- file-authored, semantically versioned JSON scenarios
+- immutable scenario snapshot per attempt
+- finish/replay lifecycle with preserved attempt records
+- reusable versioned dataset templates
+- reusable versioned workload templates
+- declarative provisioning and fault injection
+- declarative grading rules
 - scenario validation CLI enforced in CI
-- explicit lab teardown and return-to-catalog flow
-- React + Vite learner dashboard
 - FastAPI orchestration API
-- PostgreSQL control database for session metadata
+- PostgreSQL control database for attempt/session metadata
 - separate PostgreSQL lab server
 - Docker Compose local environment
 - GitHub Actions with real PostgreSQL integration tests
@@ -31,37 +33,23 @@ The MVP currently includes:
 
 An e-commerce `orders` table has grown to hundreds of thousands of rows and a customer checkout lookup is inefficient. The learner inspects the plan, designs the appropriate composite index and verifies PostgreSQL uses it.
 
-Grading checks include:
-- composite index prefix
-- indexed query plan
-- production data preservation
+This lab reuses `ecommerce-orders-medium@1.0.0` and the named `checkout-customer-history@1.0.0` workload.
 
 ### 2. Blocked Payment Transaction
 
-A stale `idle in transaction` application session holds a row lock on a payment account. The learner inspects PostgreSQL activity, identifies the non-superuser service backend, terminates the correct blocker and verifies writes work again.
-
-Grading checks include:
-- stale blocking session removed
-- account data preserved
-- affected row writable within the lock timeout
+A stale `idle in transaction` application session holds a row lock on a payment account. The learner inspects PostgreSQL activity, identifies the service backend, terminates the correct blocker and verifies writes work again.
 
 ### 3. Connection Pool Exhaustion
 
-A runaway checkout service creates twelve PostgreSQL sessions when the expected healthy pool size is three. The learner groups sessions by application, identifies the offending pool and terminates only the excess connections.
-
-Grading checks include:
-- checkout pool reduced to three or fewer sessions
-- service configuration preserved
-- database remains responsive
+A runaway checkout service creates twelve PostgreSQL sessions when the expected healthy pool size is three. The learner identifies the offending pool and terminates only the excess connections.
 
 ### 4. Deadlocking Transfer Procedures
 
-Two payment transfer functions acquire row locks on the same pair of accounts in opposite order. Provisioning executes both paths concurrently and requires PostgreSQL to reproduce a real `deadlock detected` failure before the learner receives the lab. The learner inspects the functions, makes lock acquisition order consistent and submits the environment for a concurrent replay.
+Two transfer functions acquire the same account rows in opposite order. Provisioning reproduces a real PostgreSQL deadlock before the learner receives the lab. The learner fixes lock ordering and the grader reruns the two paths concurrently.
 
-Grading checks include:
-- both transfer paths complete concurrently without SQLSTATE `40P01`
-- both account rows remain present
-- total account balance remains unchanged
+### 5. Stale Reporting Transaction
+
+A weekly reporting worker finishes its query but leaves a transaction open. The learner finds the old `idle in transaction` session, terminates only the reporting backend and preserves the shared e-commerce dataset.
 
 ## Run locally
 
@@ -85,15 +73,16 @@ psql -h localhost -p 55432 -U <generated_user> -d <generated_database>
 
 ## Learner flow
 
-1. Open the learner UI.
-2. Choose an incident from the PostgreSQL DBA scenario catalog.
-3. Start the lab.
-4. Copy the generated PostgreSQL connection credentials.
-5. Diagnose the incident using `psql`, DBeaver, DataGrip, pgAdmin or another PostgreSQL client.
-6. Apply a safe fix to the real lab environment.
-7. Click **Evaluate environment**.
-8. Review the objective checks, score and feedback.
-9. Finish the lab; the platform tears down its database and generated roles and returns to the catalog.
+1. Choose an incident from the scenario catalog.
+2. Start a versioned attempt.
+3. Connect to its generated PostgreSQL lab.
+4. Diagnose and apply a safe fix.
+5. Evaluate the real environment.
+6. Review checks, score and feedback.
+7. Finish the attempt to destroy the PostgreSQL runtime while preserving the attempt record.
+8. Replay the incident when desired; the replay creates a fresh lab and links the new attempt to the previous one.
+
+Each attempt stores an immutable snapshot of the scenario definition it began with. If the scenario is later upgraded, an existing attempt still grades against its original definition; a replay intentionally uses the current version.
 
 ## Architecture
 
@@ -103,45 +92,50 @@ React / Vite learner UI
        FastAPI
           |
           +---- Platform PostgreSQL
-          |       session metadata / results
+          |       durable attempts / evaluations
           |
-          +---- Scenario Loader
+          +---- Scenario Catalog
           |       backend/scenarios/*.json
-          |       metadata / provisioning / grading validation
+          |       semantic versions + validation
+          |
+          +---- Reusable Asset Catalogs
+          |       backend/datasets/*.json
+          |       backend/workloads/*.json
           |
           +---- Scenario Engine
-          |       declarative provisioning engine
+          |       declarative provisioning
           |       reusable fault injectors
-          |       declarative grading engine
+          |       declarative grading
           |
           +---- Lab PostgreSQL
-                  database + learner role per session
+                  disposable database + learner role per attempt
                   optional generated service roles/sessions
 ```
 
-### Scenario authoring and engine
+## Scenario authoring
 
-Scenario definitions live in `backend/scenarios/*.json`. `backend/app/catalog.py` discovers and loads them; API routing remains scenario-agnostic.
+Scenario definitions live in `backend/scenarios/*.json`. Reusable assets live in:
 
-Before running or committing scenario changes, validate them from the backend directory:
+- `backend/datasets/*.json`
+- `backend/workloads/*.json`
+
+Scenarios reference dataset/workload assets by **slug + exact semantic version**. A scenario definition also declares its own semantic version. When a scenario's behavior, provisioning or grading changes, its version should be bumped.
+
+Validate authoring changes from `database-training-platform/backend`:
 
 ```bash
 python -m app.validate_scenarios
 ```
 
-The validator checks required metadata, track references, provisioning structure, generated-role/fault references, supported grading checks and 100-point score totals. GitHub Actions runs this validation before backend compilation and live PostgreSQL integration tests.
+Validation covers scenario metadata, semantic versions, track references, dataset references and versions, workload SQL references and versions, provisioning structure, fault references, grading primitives and 100-point totals.
 
-Provisioning currently supports:
+Current reusable fault primitives:
 
-- ordered setup SQL
-- learner ownership/grant statements
-- generated non-superuser service roles
-- persistent `idle in transaction` row-lock injection
-- runaway connection-pool injection
-- concurrent deadlock reproduction with incident evidence
-- generic runtime connection and role teardown
+- persistent idle transaction / row lock
+- runaway connection pool
+- concurrent deadlock reproduction
 
-Reusable grading primitives currently include:
+Current reusable grading primitives:
 
 - `index_prefix`
 - `query_plan_uses_index`
@@ -151,22 +145,23 @@ Reusable grading primitives currently include:
 - `query_succeeds`
 - `concurrent_sql_no_deadlock`
 
-This keeps the AI layer optional. An LLM can later act as a manager, coworker, mentor or postmortem reviewer, but the technical pass/fail decision is grounded in PostgreSQL state and repeatable workloads.
+Current reusable assets:
+
+- dataset: `ecommerce-orders-medium@1.0.0`
+- workload: `checkout-customer-history@1.0.0`
 
 ## Testing
 
 GitHub Actions validates:
 
-- scenario JSON files and metadata
+- scenario and reusable-asset references
 - Python backend compilation
 - backend unit tests
-- real PostgreSQL integration tests
+- real PostgreSQL integration tests across all implemented labs
 - Vite production frontend build
 - Docker Compose configuration
 
-The integration suite provisions every implemented incident through the same generic scenario path used by the API, confirms the initial environment fails grading, performs the expected learner-style remediation and verifies the environment reaches 100/100 before teardown.
-
-The deadlock integration test also confirms the database actually emits a PostgreSQL deadlock between `transfer_forward()` and `transfer_reverse()` before the learner fix.
+The integration suite provisions incidents through the same generic path used by the API, verifies their initial broken state, performs learner-style remediation and checks the resulting score.
 
 ## Reset local state
 
@@ -176,17 +171,16 @@ docker compose down -v
 
 ## Next product milestones
 
-Near-term priorities are:
+The authoring engine is now sufficiently reusable for the MVP. The next product layer is the **learning engine**:
 
-- add scenario reset/replay and versioning
-- introduce reusable named dataset/workload templates to reduce scenario JSON size
-- more DBA incidents: long-running transactions, permissions, failed migrations, backup/restore, disk pressure and VACUUM/bloat
-- persistent learner progress and skill graph
-- scenario prerequisites and adaptive recommendations
-- stronger per-lab isolation using disposable containers or namespaces
-- AI manager/coworker simulation and incident debriefs
-- data-engineering tracks with Kafka, Debezium CDC and pipeline incidents
-- company onboarding and technical hiring modes
+- learner identity/accounts
+- persistent attempt-history UI and API
+- progress summary per scenario and skill
+- skill graph and prerequisites
+- scenario recommendations and adaptive difficulty
+- evidence/portfolio reports
+
+In parallel, the DBA catalog can grow with disk pressure, VACUUM/table-bloat, permissions, failed migrations, backup/restore, replication lag and failover incidents.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the wider roadmap.
 
@@ -194,4 +188,4 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the wider roadmap.
 
 This remains a local-development MVP. It intentionally gives learners meaningful PostgreSQL permissions inside the training environment. Do not expose the shared lab PostgreSQL server to the public internet.
 
-A production deployment should move each lab into a strong disposable isolation boundary such as a dedicated container/VM or Kubernetes namespace, with network policies, CPU/memory quotas, secret management, automatic expiry and teardown, and audited lab actions.
+A production deployment should move each lab into a strong disposable isolation boundary such as a dedicated container/VM or Kubernetes namespace, with network policies, CPU/memory quotas, secret management, automatic expiry/teardown and audited lab actions.
