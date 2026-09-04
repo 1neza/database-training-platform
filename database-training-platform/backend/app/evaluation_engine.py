@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from .lab import connect_as_admin
+from .workload_catalog import WORKLOADS
 
 _SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SUPPORTED_CHECKS = {
@@ -47,6 +48,46 @@ def _contains_index(node: dict[str, Any]) -> bool:
     if "Index" in node.get("Node Type", ""):
         return True
     return any(_contains_index(child) for child in node.get("Plans", []))
+
+
+def _resolve_sql_ref(ref: dict) -> str:
+    if not isinstance(ref, dict):
+        raise EvaluationConfigurationError("sql_ref must be an object")
+    workload_slug = ref.get("workload")
+    version = ref.get("version")
+    statement_name = ref.get("statement")
+    if not all(isinstance(value, str) and value for value in (workload_slug, version, statement_name)):
+        raise EvaluationConfigurationError(
+            "sql_ref requires workload, version and statement"
+        )
+
+    workload = WORKLOADS.get(workload_slug)
+    if workload is None:
+        raise EvaluationConfigurationError(f"Unknown workload template: {workload_slug!r}")
+    if workload["version"] != version:
+        raise EvaluationConfigurationError(
+            f"Workload {workload_slug!r} requires version {version!r}, available version is {workload['version']!r}"
+        )
+    sql = workload["statements"].get(statement_name)
+    if sql is None:
+        raise EvaluationConfigurationError(
+            f"Workload {workload_slug!r} has no statement {statement_name!r}"
+        )
+    return sql
+
+
+def _sql_for_check(check: dict) -> str:
+    sql = check.get("sql")
+    sql_ref = check.get("sql_ref")
+    if isinstance(sql, str) and sql.strip():
+        if sql_ref is not None:
+            raise EvaluationConfigurationError("Evaluation check cannot define both sql and sql_ref")
+        return sql
+    if sql_ref is not None:
+        return _resolve_sql_ref(sql_ref)
+    raise EvaluationConfigurationError(
+        f"Evaluation check {check.get('name', '<unnamed>')!r} requires sql or sql_ref"
+    )
 
 
 def validate_evaluation_spec(spec: dict) -> None:
@@ -115,8 +156,7 @@ def validate_evaluation_spec(spec: dict) -> None:
                 )
 
         if check_type in {"query_plan_uses_index", "scalar_equals", "query_succeeds"}:
-            if not isinstance(check.get("sql"), str) or not check["sql"].strip():
-                raise EvaluationConfigurationError(f"Evaluation check {name!r} requires SQL")
+            _sql_for_check(check)
 
         if check_type == "scalar_equals" and "expected" not in check:
             raise EvaluationConfigurationError(f"Evaluation check {name!r} requires expected")
@@ -153,11 +193,7 @@ async def _run_concurrent_statements(database: str, statements: list[str]) -> tu
         if not errors:
             return True, "both concurrent statements completed successfully"
 
-        deadlocks = [
-            error
-            for error in errors
-            if getattr(error, "sqlstate", None) == "40P01"
-        ]
+        deadlocks = [error for error in errors if getattr(error, "sqlstate", None) == "40P01"]
         if deadlocks:
             return False, f"PostgreSQL detected {len(deadlocks)} deadlock error(s) (SQLSTATE 40P01)"
         return False, f"concurrent execution returned {len(errors)} database error(s)"
@@ -192,7 +228,8 @@ async def _run_check(conn, check: dict, database: str) -> tuple[bool, str]:
         return found, f"required index prefix: {', '.join(columns)}"
 
     if check_type == "query_plan_uses_index":
-        plan_value = await conn.fetchval(f"EXPLAIN (FORMAT JSON) {check['sql']}")
+        sql = _sql_for_check(check)
+        plan_value = await conn.fetchval(f"EXPLAIN (FORMAT JSON) {sql}")
         if isinstance(plan_value, str):
             plan_value = json.loads(plan_value)
         plan = plan_value[0]["Plan"]
@@ -224,7 +261,7 @@ async def _run_check(conn, check: dict, database: str) -> tuple[bool, str]:
         )
 
     if check_type == "scalar_equals":
-        actual = await conn.fetchval(check["sql"])
+        actual = await conn.fetchval(_sql_for_check(check))
         expected = check["expected"]
         return actual == expected, f"actual: {actual!r}; expected: {expected!r}"
 
@@ -233,7 +270,7 @@ async def _run_check(conn, check: dict, database: str) -> tuple[bool, str]:
         succeeded = False
         try:
             await conn.execute(f"SET lock_timeout = '{lock_timeout_ms}ms'")
-            await conn.execute(check["sql"])
+            await conn.execute(_sql_for_check(check))
             succeeded = True
         except Exception:
             succeeded = False
