@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from app.catalog import SCENARIOS
@@ -10,7 +12,37 @@ from app.scenario_engine import (
 )
 
 
-def test_every_catalog_scenario_has_valid_provisioning_and_evaluation():
+def _valid_scenario(slug: str) -> dict:
+    return {
+        "slug": slug,
+        "track_slug": "postgresql-dba",
+        "title": "Validation Fixture",
+        "level": "beginner",
+        "duration_minutes": 10,
+        "summary": "A valid scenario used by validation tests.",
+        "incident": "A database incident needs investigation.",
+        "objectives": ["Diagnose the issue."],
+        "hints": ["Inspect PostgreSQL state."],
+        "provisioning": {
+            "setup_sql": ["SELECT 1"],
+            "roles": [],
+            "faults": [],
+        },
+        "evaluation": {
+            "checks": [
+                {
+                    "type": "scalar_equals",
+                    "name": "placeholder",
+                    "sql": "SELECT 1",
+                    "expected": 1,
+                    "points": 100,
+                }
+            ]
+        },
+    }
+
+
+def test_every_catalog_scenario_has_valid_metadata_provisioning_and_evaluation():
     validate_scenario_catalog()
 
     for slug, scenario in SCENARIOS.items():
@@ -24,85 +56,52 @@ def test_unknown_scenario_raises_key_error():
         get_scenario_definition("does-not-exist")
 
 
-def test_missing_provisioning_fails_catalog_validation(monkeypatch):
-    monkeypatch.setitem(
-        SCENARIOS,
-        "broken-scenario",
-        {
-            "slug": "broken-scenario",
-            "evaluation": {
-                "checks": [
-                    {
-                        "type": "scalar_equals",
-                        "name": "placeholder",
-                        "sql": "SELECT 1",
-                        "expected": 1,
-                        "points": 100,
-                    }
-                ]
-            },
-        },
-    )
+def test_invalid_metadata_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-metadata")
+    scenario["duration_minutes"] = 0
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
-    with pytest.raises(ScenarioConfigurationError):
+    with pytest.raises(ScenarioConfigurationError, match="duration_minutes"):
+        validate_scenario_catalog()
+
+
+def test_unknown_track_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-track")
+    scenario["track_slug"] = "missing-track"
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="unknown track"):
+        validate_scenario_catalog()
+
+
+def test_missing_provisioning_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-scenario")
+    del scenario["provisioning"]
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="provisioning"):
         validate_scenario_catalog()
 
 
 def test_invalid_provisioning_fails_catalog_validation(monkeypatch):
-    monkeypatch.setitem(
-        SCENARIOS,
-        "broken-provisioning",
+    scenario = _valid_scenario("broken-provisioning")
+    scenario["provisioning"]["faults"] = [
         {
-            "slug": "broken-provisioning",
-            "provisioning": {
-                "setup_sql": ["SELECT 1"],
-                "roles": [],
-                "faults": [
-                    {
-                        "type": "connection_pool",
-                        "role": "missing",
-                        "count": 2,
-                    }
-                ],
-            },
-            "evaluation": {
-                "checks": [
-                    {
-                        "type": "scalar_equals",
-                        "name": "placeholder",
-                        "sql": "SELECT 1",
-                        "expected": 1,
-                        "points": 100,
-                    }
-                ]
-            },
-        },
-    )
+            "type": "connection_pool",
+            "role": "missing",
+            "count": 2,
+        }
+    ]
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
     with pytest.raises(ProvisioningConfigurationError):
         validate_scenario_catalog()
 
 
 def test_invalid_evaluation_fails_catalog_validation(monkeypatch):
-    monkeypatch.setitem(
-        SCENARIOS,
-        "broken-evaluation",
-        {
-            "slug": "broken-evaluation",
-            "provisioning": {"setup_sql": ["SELECT 1"], "roles": [], "faults": []},
-            "evaluation": {
-                "checks": [
-                    {
-                        "type": "scalar_equals",
-                        "name": "underweighted",
-                        "sql": "SELECT 1",
-                        "expected": 1,
-                        "points": 10,
-                    }
-                ]
-            },
-        },
-    )
+    scenario = copy.deepcopy(_valid_scenario("broken-evaluation"))
+    scenario["evaluation"]["checks"][0]["points"] = 10
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
     with pytest.raises(EvaluationConfigurationError):
         validate_scenario_catalog()
