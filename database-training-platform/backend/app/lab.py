@@ -9,6 +9,7 @@ from .config import settings
 
 _SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _BLOCKERS: dict[str, asyncpg.Connection] = {}
+_BLOCKER_ROLES: dict[str, str] = {}
 
 
 def ident(value: str) -> str:
@@ -34,6 +35,16 @@ async def _admin_connect(database: str = "postgres"):
         port=settings.lab_admin_port,
         user=settings.lab_admin_user,
         password=settings.lab_admin_password,
+        database=database,
+    )
+
+
+async def _role_connect(database: str, username: str, password: str):
+    return await asyncpg.connect(
+        host=settings.lab_admin_host,
+        port=settings.lab_admin_port,
+        user=username,
+        password=password,
         database=database,
     )
 
@@ -133,6 +144,16 @@ async def provision_slow_checkout(session_short_id: str) -> LabCredentials:
 async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
     creds = await _create_lab_identity(session_short_id)
     username = creds.username
+    worker_role = f"worker_{session_short_id}"
+    worker_password = secrets.token_urlsafe(18)
+
+    admin = await _admin_connect()
+    try:
+        await admin.execute(
+            f"CREATE ROLE {ident(worker_role)} LOGIN PASSWORD {literal(worker_password)}"
+        )
+    finally:
+        await admin.close()
 
     conn = await _admin_connect(creds.database)
     try:
@@ -164,15 +185,19 @@ async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
             GRANT SELECT ON incident_notes TO {ident(username)};
             GRANT pg_signal_backend TO {ident(username)};
             GRANT pg_read_all_stats TO {ident(username)};
+            GRANT CONNECT ON DATABASE {ident(creds.database)} TO {ident(worker_role)};
+            GRANT USAGE ON SCHEMA public TO {ident(worker_role)};
+            GRANT SELECT, UPDATE ON accounts TO {ident(worker_role)};
         """)
     finally:
         await conn.close()
 
-    blocker = await _admin_connect(creds.database)
+    blocker = await _role_connect(creds.database, worker_role, worker_password)
     await blocker.execute("SET application_name = 'legacy-payment-worker'")
     await blocker.execute("BEGIN")
     await blocker.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
     _BLOCKERS[creds.database] = blocker
+    _BLOCKER_ROLES[creds.database] = worker_role
 
     return creds
 
@@ -186,6 +211,8 @@ async def teardown_lab(database: str, username: str):
     if blocker is not None and not blocker.is_closed():
         await blocker.close()
 
+    blocker_role = _BLOCKER_ROLES.pop(database, None)
+
     admin = await _admin_connect()
     try:
         await admin.execute(
@@ -193,6 +220,8 @@ async def teardown_lab(database: str, username: str):
             database,
         )
         await admin.execute(f"DROP DATABASE IF EXISTS {ident(database)}")
+        if blocker_role:
+            await admin.execute(f"DROP ROLE IF EXISTS {ident(blocker_role)}")
         await admin.execute(f"DROP ROLE IF EXISTS {ident(username)}")
     finally:
         await admin.close()
