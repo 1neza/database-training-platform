@@ -1,6 +1,6 @@
 {
   "track_slug": "postgresql-dba",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "skills": [
     {"slug": "postgresql.activity-monitoring", "name": "Activity Monitoring", "description": "Inspect pg_stat_activity and related runtime state to diagnose active database behavior.", "prerequisites": []},
     {"slug": "postgresql.transaction-basics", "name": "Transaction Basics", "description": "Understand transaction states, boundaries, commit/rollback behavior, and long-lived transactions.", "prerequisites": []},
@@ -12,6 +12,7 @@
     {"slug": "postgresql.roles-privileges", "name": "Roles and Privileges", "description": "Audit PostgreSQL role access and enforce least privilege without breaking required application capabilities.", "prerequisites": ["postgresql.safe-operations"]},
     {"slug": "postgresql.schema-migrations", "name": "Schema Migrations", "description": "Diagnose and safely complete partially applied schema changes while preserving production data and migration state.", "prerequisites": ["postgresql.safe-operations"]},
     {"slug": "postgresql.vacuum-maintenance", "name": "VACUUM and Table Maintenance", "description": "Diagnose dead-tuple accumulation and perform safe PostgreSQL vacuum/analyze maintenance without losing live rows.", "prerequisites": ["postgresql.safe-operations"]},
+    {"slug": "postgresql.backup-restore", "name": "Backup and Restore", "description": "Assess backup evidence and restore missing production data selectively while preserving valid live rows and the recovery source.", "prerequisites": ["postgresql.safe-operations"]},
     {"slug": "postgresql.safe-operations", "name": "Safe Database Operations", "description": "Resolve incidents without destructive shortcuts or corrupting production-style data.", "prerequisites": []}
   ]
 }
