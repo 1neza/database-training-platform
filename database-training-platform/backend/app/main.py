@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .catalog import SCENARIOS, TRACKS
 from .config import settings
 from .db import Base, engine, get_db
-from .evaluator import evaluate_slow_checkout
-from .lab import provision_slow_checkout, teardown_lab
+from .evaluator import evaluate_blocked_payment, evaluate_slow_checkout
+from .lab import provision_blocked_payment, provision_slow_checkout, teardown_lab
 from .models import SessionStatus, TrainingSession
 from .schemas import EvaluationOut, ScenarioOut, SessionOut, StartSessionIn, TrackOut
 
@@ -104,6 +104,8 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
 
     if payload.scenario_slug == "slow-checkout-query":
         creds = await provision_slow_checkout(short_id)
+    elif payload.scenario_slug == "blocked-payment-transaction":
+        creds = await provision_blocked_payment(short_id)
     else:
         raise HTTPException(400, "Scenario has no provisioner yet")
 
@@ -148,6 +150,8 @@ async def evaluate(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
     if row.scenario_slug == "slow-checkout-query":
         result = await evaluate_slow_checkout(row.database_name)
+    elif row.scenario_slug == "blocked-payment-transaction":
+        result = await evaluate_blocked_payment(row.database_name)
     else:
         raise HTTPException(400, "Scenario has no evaluator yet")
 
