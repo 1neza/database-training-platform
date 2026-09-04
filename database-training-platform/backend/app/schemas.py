@@ -59,6 +59,35 @@ class LearningPathOut(BaseModel):
     scenarios: list[ScenarioReadinessOut]
 
 
+class EvidenceCheckOut(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class PortfolioEvidenceOut(BaseModel):
+    attempt_id: UUID
+    scenario_slug: str
+    scenario_title: str
+    scenario_version: str
+    score: int | None = None
+    attempted_at: datetime | None = None
+    skills: list[SkillOut]
+    objectives: list[str]
+    checks: list[EvidenceCheckOut]
+    feedback: list[str]
+    evidence_summary: str
+
+
+class PortfolioOut(BaseModel):
+    learner_id: UUID
+    learner_name: str
+    scenarios_demonstrated: int
+    skills_demonstrated: int
+    demonstrated_skills: list[SkillOut]
+    evidence: list[PortfolioEvidenceOut]
+
+
 class CreateLearnerIn(BaseModel):
     display_name: str = Field(min_length=2, max_length=120)
 
