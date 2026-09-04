@@ -47,6 +47,9 @@ class ScenarioReadinessOut(BaseModel):
     recommended: bool
     recommendation_priority: int
     recommendation_reasons: list[str]
+    review_due: bool
+    review_due_at: datetime | None = None
+    review_interval_days: int | None = None
 
 
 class LearningPathOut(BaseModel):
