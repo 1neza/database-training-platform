@@ -2,37 +2,34 @@ import pytest
 
 from app.catalog import SCENARIOS
 from app.evaluation_engine import EvaluationConfigurationError
+from app.provisioning_engine import ProvisioningConfigurationError
 from app.scenario_engine import (
-    PROVISIONERS,
     ScenarioConfigurationError,
-    get_scenario_runtime,
+    get_scenario_definition,
     validate_scenario_catalog,
 )
 
 
-def test_every_catalog_scenario_has_registered_runtime_and_evaluation():
+def test_every_catalog_scenario_has_valid_provisioning_and_evaluation():
     validate_scenario_catalog()
 
     for slug, scenario in SCENARIOS.items():
-        runtime = scenario["runtime"]
-        assert runtime["provisioner"] in PROVISIONERS
+        assert get_scenario_definition(slug) is scenario
+        assert "provisioning" in scenario
         assert "evaluation" in scenario
-        resolved = get_scenario_runtime(slug)
-        assert callable(resolved.provisioner)
 
 
 def test_unknown_scenario_raises_key_error():
     with pytest.raises(KeyError):
-        get_scenario_runtime("does-not-exist")
+        get_scenario_definition("does-not-exist")
 
 
-def test_invalid_runtime_fails_fast(monkeypatch):
+def test_missing_provisioning_fails_catalog_validation(monkeypatch):
     monkeypatch.setitem(
         SCENARIOS,
         "broken-scenario",
         {
             "slug": "broken-scenario",
-            "runtime": {"provisioner": "missing"},
             "evaluation": {
                 "checks": [
                     {
@@ -48,7 +45,42 @@ def test_invalid_runtime_fails_fast(monkeypatch):
     )
 
     with pytest.raises(ScenarioConfigurationError):
-        get_scenario_runtime("broken-scenario")
+        validate_scenario_catalog()
+
+
+def test_invalid_provisioning_fails_catalog_validation(monkeypatch):
+    monkeypatch.setitem(
+        SCENARIOS,
+        "broken-provisioning",
+        {
+            "slug": "broken-provisioning",
+            "provisioning": {
+                "setup_sql": ["SELECT 1"],
+                "roles": [],
+                "faults": [
+                    {
+                        "type": "connection_pool",
+                        "role": "missing",
+                        "count": 2,
+                    }
+                ],
+            },
+            "evaluation": {
+                "checks": [
+                    {
+                        "type": "scalar_equals",
+                        "name": "placeholder",
+                        "sql": "SELECT 1",
+                        "expected": 1,
+                        "points": 100,
+                    }
+                ]
+            },
+        },
+    )
+
+    with pytest.raises(ProvisioningConfigurationError):
+        validate_scenario_catalog()
 
 
 def test_invalid_evaluation_fails_catalog_validation(monkeypatch):
@@ -57,7 +89,7 @@ def test_invalid_evaluation_fails_catalog_validation(monkeypatch):
         "broken-evaluation",
         {
             "slug": "broken-evaluation",
-            "runtime": {"provisioner": "slow_checkout"},
+            "provisioning": {"setup_sql": ["SELECT 1"], "roles": [], "faults": []},
             "evaluation": {
                 "checks": [
                     {
