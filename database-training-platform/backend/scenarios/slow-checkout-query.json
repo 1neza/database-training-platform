@@ -1,23 +1,14 @@
 {
   "slug": "slow-checkout-query",
+  "version": "1.0.0",
   "track_slug": "postgresql-dba",
   "title": "Slow Checkout Query",
   "level": "beginner-intermediate",
   "duration_minutes": 45,
   "summary": "Checkout latency increased after the orders table grew. Diagnose and safely improve the database.",
   "incident": "09:10 — Customer support reports checkout requests taking several seconds. The engineering manager says the issue appeared as order volume grew. You have 45 minutes to diagnose the database and implement a safe production-ready fix.",
-  "objectives": [
-    "Inspect the schema and data volume.",
-    "Run EXPLAIN or EXPLAIN ANALYZE on the checkout lookup query.",
-    "Identify why PostgreSQL is scanning too much data.",
-    "Apply a database-level optimization without deleting data.",
-    "Verify the query plan improved."
-  ],
-  "hints": [
-    "Start with \\d orders and inspect existing indexes.",
-    "The application frequently filters by customer_id and asks for the newest orders.",
-    "A useful index can serve both filtering and ordering when its column order matches the query."
-  ],
+  "objectives": ["Inspect the schema and data volume.", "Run EXPLAIN or EXPLAIN ANALYZE on the checkout lookup query.", "Identify why PostgreSQL is scanning too much data.", "Apply a database-level optimization without deleting data.", "Verify the query plan improved."],
+  "hints": ["Start with \\d orders and inspect existing indexes.", "The application frequently filters by customer_id and asks for the newest orders.", "A useful index can serve both filtering and ordering when its column order matches the query."],
   "provisioning": {
     "setup_sql": [
       "CREATE TABLE customers (id BIGSERIAL PRIMARY KEY, email TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now()); CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, customer_id BIGINT NOT NULL REFERENCES customers(id), status TEXT NOT NULL, total_cents INTEGER NOT NULL CHECK (total_cents >= 0), created_at TIMESTAMPTZ NOT NULL); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL);",
@@ -26,44 +17,15 @@
       "CREATE INDEX idx_orders_created_at ON orders(created_at); ANALYZE customers; ANALYZE orders;",
       "INSERT INTO incident_notes(note) VALUES ('Application query: SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20;'), ('Do not delete production orders. Changes should be safe for normal application traffic.'), ('Your work is evaluated against the actual database state.');"
     ],
-    "learner": {
-      "statements": [
-        "ALTER TABLE orders OWNER TO {learner}",
-        "ALTER SEQUENCE orders_id_seq OWNER TO {learner}",
-        "GRANT SELECT, INSERT, UPDATE, DELETE ON customers, incident_notes TO {learner}",
-        "GRANT USAGE, SELECT ON SEQUENCE customers_id_seq, incident_notes_id_seq TO {learner}",
-        "GRANT CREATE ON SCHEMA public TO {learner}"
-      ]
-    },
+    "learner": {"statements": ["ALTER TABLE orders OWNER TO {learner}", "ALTER SEQUENCE orders_id_seq OWNER TO {learner}", "GRANT SELECT, INSERT, UPDATE, DELETE ON customers, incident_notes TO {learner}", "GRANT USAGE, SELECT ON SEQUENCE customers_id_seq, incident_notes_id_seq TO {learner}", "GRANT CREATE ON SCHEMA public TO {learner}"]},
     "roles": [],
     "faults": []
   },
   "evaluation": {
     "checks": [
-      {
-        "type": "index_prefix",
-        "name": "Composite index exists",
-        "table": "orders",
-        "columns": ["customer_id", "created_at"],
-        "points": 50,
-        "feedback": "Create an index whose leading columns match the filter and ordering pattern, for example customer_id followed by created_at."
-      },
-      {
-        "type": "query_plan_uses_index",
-        "name": "Challenge query uses an index",
-        "sql": "SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20",
-        "points": 40,
-        "feedback": "The checkout query is still not receiving an indexed plan."
-      },
-      {
-        "type": "row_count",
-        "name": "Production data preserved",
-        "table": "orders",
-        "operator": "gte",
-        "expected": 350000,
-        "points": 10,
-        "feedback": "The task must be solved without deleting the production dataset."
-      }
+      {"type": "index_prefix", "name": "Composite index exists", "table": "orders", "columns": ["customer_id", "created_at"], "points": 50, "feedback": "Create an index whose leading columns match the filter and ordering pattern, for example customer_id followed by created_at."},
+      {"type": "query_plan_uses_index", "name": "Challenge query uses an index", "sql": "SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20", "points": 40, "feedback": "The checkout query is still not receiving an indexed plan."},
+      {"type": "row_count", "name": "Production data preserved", "table": "orders", "operator": "gte", "expected": 350000, "points": 10, "feedback": "The task must be solved without deleting the production dataset."}
     ],
     "success_feedback": "The environment now has an index aligned with the production lookup pattern, and PostgreSQL can use it for the challenge query."
   }
