@@ -41,6 +41,9 @@ export type ScenarioReadiness = {
   recommended: boolean;
   recommendation_priority: number;
   recommendation_reasons: string[];
+  review_due: boolean;
+  review_due_at: string | null;
+  review_interval_days: number | null;
 };
 
 export type LearningPath = {
