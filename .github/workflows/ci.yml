@@ -8,11 +8,31 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lab_admin
+          POSTGRES_PASSWORD: lab_admin
+          POSTGRES_DB: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_admin -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     defaults:
       run:
         working-directory: database-training-platform/backend
     env:
       PYTHONPATH: .
+      LAB_ADMIN_HOST: localhost
+      LAB_PUBLIC_HOST: localhost
+      LAB_ADMIN_PORT: "55432"
+      LAB_PUBLIC_PORT: "55432"
+      LAB_ADMIN_USER: lab_admin
+      LAB_ADMIN_PASSWORD: lab_admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
