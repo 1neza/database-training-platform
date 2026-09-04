@@ -93,3 +93,75 @@ async def evaluate_slow_checkout(database: str) -> dict:
         }
     finally:
         await conn.close()
+
+
+async def evaluate_blocked_payment(database: str) -> dict:
+    conn = await connect_as_admin(database)
+    checks = []
+    feedback = []
+    score = 0
+
+    try:
+        blocker_count = await conn.fetchval("""
+            SELECT count(*)
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = 'legacy-payment-worker'
+              AND state = 'idle in transaction'
+        """)
+        blocker_cleared = blocker_count == 0
+        checks.append({
+            "name": "Stale blocking transaction cleared",
+            "passed": blocker_cleared,
+            "detail": f"legacy payment worker sessions still open: {blocker_count}",
+        })
+        if blocker_cleared:
+            score += 55
+        else:
+            feedback.append(
+                "The stale legacy-payment-worker transaction is still open. Identify its PID and terminate that backend safely."
+            )
+
+        account_count = await conn.fetchval("SELECT count(*) FROM accounts")
+        data_preserved = account_count == 2
+        checks.append({
+            "name": "Account data preserved",
+            "passed": data_preserved,
+            "detail": f"accounts row count: {account_count}",
+        })
+        if data_preserved:
+            score += 20
+        else:
+            feedback.append("Production-style account data must remain intact; deleting rows is not a valid incident response.")
+
+        try:
+            await conn.execute("SET LOCAL lock_timeout = '500ms'")
+            await conn.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
+            row_writable = True
+        except Exception:
+            row_writable = False
+
+        checks.append({
+            "name": "Affected payment row is writable",
+            "passed": row_writable,
+            "detail": "A test UPDATE on account id 1 must complete without waiting on another transaction.",
+        })
+        if row_writable:
+            score += 25
+        else:
+            feedback.append("The affected account row is still locked by another transaction.")
+
+        passed = blocker_cleared and data_preserved and row_writable
+        if passed:
+            feedback.append(
+                "The blocking transaction is gone, the account data is intact, and normal writes can proceed again."
+            )
+
+        return {
+            "passed": passed,
+            "score": score,
+            "checks": checks,
+            "feedback": feedback,
+        }
+    finally:
+        await conn.close()
