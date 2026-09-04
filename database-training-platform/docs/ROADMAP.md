@@ -18,7 +18,7 @@
 - [x] Lock contention / stale transaction
 - [x] Connection-pool exhaustion
 - [x] Deadlock
-- [ ] Long-running transaction without row-lock incident
+- [x] Long-running transaction without row-lock incident
 - [ ] Disk pressure
 - [ ] Table bloat / VACUUM
 - [ ] Failed deployment migration
@@ -26,6 +26,13 @@
 - [ ] Backup and restore
 - [ ] Replica lag
 - [ ] Failover
+
+Implemented labs:
+1. Slow Checkout Query
+2. Blocked Payment Transaction
+3. Connection Pool Exhaustion
+4. Deadlocking Transfer Procedures
+5. Stale Reporting Transaction
 
 ## Phase 2.5 — Scenario authoring engine
 - [x] Scenario-agnostic API routing
@@ -37,15 +44,18 @@
 - [x] Generic runtime connection/role teardown
 - [x] Scenario definitions loaded from JSON files
 - [x] Scenario authoring validation CLI
-- [ ] Scenario versioning
-- [ ] Scenario reset/replay
-- [ ] Named reusable dataset templates
-- [ ] Named workload templates
+- [x] Scenario semantic versioning
+- [x] Immutable scenario snapshot per learner attempt
+- [x] Attempt finish/replay lifecycle
+- [x] Named reusable dataset templates
+- [x] Named workload templates
 
 Current scenario authoring flow:
 1. Add or edit `backend/scenarios/<slug>.json`.
-2. Run `python -m app.validate_scenarios`.
-3. CI repeats validation, compiles the backend and runs the real PostgreSQL integration suite.
+2. Reference versioned assets from `backend/datasets/` and `backend/workloads/` when appropriate.
+3. Bump the scenario semantic version when its behavior/definition changes.
+4. Run `python -m app.validate_scenarios`.
+5. CI repeats validation, compiles the backend and runs the real PostgreSQL integration suite.
 
 Current reusable fault primitives:
 - persistent idle transaction / row lock
@@ -61,15 +71,20 @@ Current reusable grading primitives:
 - query succeeds under lock timeout
 - concurrent SQL completes without deadlock
 
+Current reusable assets:
+- dataset: `ecommerce-orders-medium@1.0.0`
+- workload: `checkout-customer-history@1.0.0`
+
 ## Phase 3 — Learning engine
-- [ ] User accounts and persistent progress
+- [ ] Learner identity / user accounts
+- [ ] Persistent attempt history UI/API
+- [ ] Progress summary per scenario/skill
 - [ ] Skill graph
 - [ ] Prerequisites
 - [ ] Adaptive difficulty
 - [ ] Scenario recommendations
 - [ ] Spaced repetition
 - [ ] Personalized weak-area drills
-- [ ] Progress history
 - [ ] Evidence / portfolio report per completed lab
 
 ## Phase 4 — AI layer
@@ -97,7 +112,7 @@ AI should assist with teaching, role-play and explanation. Deterministic infrast
 - [ ] Kubernetes namespace or equivalent isolation per session
 - [ ] CPU/memory quotas
 - [ ] Network policies
-- [ ] Automatic expiry and teardown
+- [ ] Automatic expiry and teardown worker
 - [ ] Secret vault
 - [ ] Audit logs
 - [ ] Lab snapshot / fast reset
