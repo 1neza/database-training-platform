@@ -24,6 +24,12 @@ export type Skill = {
   description: string;
 };
 
+export type WeakSkill = Skill & {
+  attempts: number;
+  failures: number;
+  average_score: number | null;
+};
+
 export type ScenarioReadiness = {
   scenario_slug: string;
   scenario_title: string;
@@ -33,11 +39,14 @@ export type ScenarioReadiness = {
   prerequisites: string[];
   missing_prerequisites: string[];
   recommended: boolean;
+  recommendation_priority: number;
+  recommendation_reasons: string[];
 };
 
 export type LearningPath = {
   track_slug: string;
   mastered_skills: Skill[];
+  weak_skills: WeakSkill[];
   scenarios: ScenarioReadiness[];
 };
 
