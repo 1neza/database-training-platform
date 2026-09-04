@@ -10,6 +10,12 @@ export type Scenario = {
   objectives: string[];
 };
 
+export type Learner = {
+  id: string;
+  display_name: string;
+  created_at: string;
+};
+
 export type Session = {
   id: string;
   learner_name: string;
@@ -32,6 +38,42 @@ export type Session = {
     password: string;
     sslmode: string;
   };
+};
+
+export type AttemptHistory = {
+  id: string;
+  scenario_slug: string;
+  scenario_title: string;
+  scenario_version: string;
+  attempt_number: number;
+  status: string;
+  score: number | null;
+  started_at: string;
+  deadline_at: string;
+  lab_active: boolean;
+  replay_of_session_id: string | null;
+};
+
+export type ScenarioProgress = {
+  scenario_slug: string;
+  scenario_title: string;
+  attempts: number;
+  passed_attempts: number;
+  best_score: number | null;
+  latest_score: number | null;
+  latest_status: string;
+  latest_attempt_at: string;
+};
+
+export type LearnerProgress = {
+  learner_id: string;
+  total_attempts: number;
+  completed_attempts: number;
+  passed_attempts: number;
+  scenarios_attempted: number;
+  scenarios_passed: number;
+  average_best_score: number | null;
+  scenario_progress: ScenarioProgress[];
 };
 
 export type Evaluation = {
