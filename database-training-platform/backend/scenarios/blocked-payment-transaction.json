@@ -1,86 +1,25 @@
 {
   "slug": "blocked-payment-transaction",
+  "version": "1.0.0",
   "track_slug": "postgresql-dba",
   "title": "Blocked Payment Transaction",
   "level": "intermediate",
   "duration_minutes": 35,
   "summary": "A stale transaction is holding a row lock and payment updates are piling up behind it.",
   "incident": "14:25 — The payments API is timing out for one customer. Monitoring shows an UPDATE waiting on a row lock. Find the blocking session, determine whether it is safe to stop, and restore normal transaction flow without deleting data.",
-  "objectives": [
-    "Inspect pg_stat_activity and pg_locks.",
-    "Identify the blocking backend and the transaction it is holding open.",
-    "Clear the blocker safely.",
-    "Verify no sessions remain blocked on the affected payment row."
-  ],
-  "hints": [
-    "pg_blocking_pids(pid) can tell you which backend is blocking another session.",
-    "Look for a session that is idle in transaction and has been open much longer than expected.",
-    "This lab grants the learner permission to signal backends inside the isolated training server."
-  ],
+  "objectives": ["Inspect pg_stat_activity and pg_locks.", "Identify the blocking backend and the transaction it is holding open.", "Clear the blocker safely.", "Verify no sessions remain blocked on the affected payment row."],
+  "hints": ["pg_blocking_pids(pid) can tell you which backend is blocking another session.", "Look for a session that is idle in transaction and has been open much longer than expected.", "This lab grants the learner permission to signal backends inside the isolated training server."],
   "provisioning": {
-    "setup_sql": [
-      "CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, customer_name TEXT NOT NULL, balance_cents BIGINT NOT NULL CHECK (balance_cents >= 0)); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL); INSERT INTO accounts(customer_name, balance_cents) VALUES ('Demo Customer', 125000), ('Second Customer', 98000); INSERT INTO incident_notes(note) VALUES ('A payment update for account id 1 is waiting on a row lock.'), ('Look for an unusually old idle-in-transaction session.'), ('Do not delete the account or truncate tables to resolve the incident.');"
-    ],
-    "learner": {
-      "statements": [
-        "ALTER TABLE accounts OWNER TO {learner}",
-        "ALTER SEQUENCE accounts_id_seq OWNER TO {learner}",
-        "GRANT SELECT ON incident_notes TO {learner}",
-        "GRANT pg_signal_backend TO {learner}",
-        "GRANT pg_read_all_stats TO {learner}"
-      ]
-    },
-    "roles": [
-      {
-        "alias": "worker",
-        "prefix": "worker",
-        "statements": [
-          "GRANT CONNECT ON DATABASE {database} TO {role}",
-          "GRANT USAGE ON SCHEMA public TO {role}",
-          "GRANT SELECT, UPDATE ON accounts TO {role}"
-        ]
-      }
-    ],
-    "faults": [
-      {
-        "type": "idle_transaction_lock",
-        "role": "worker",
-        "application_name": "legacy-payment-worker",
-        "statements": [
-          "BEGIN",
-          "UPDATE accounts SET balance_cents = balance_cents WHERE id = 1"
-        ]
-      }
-    ]
+    "setup_sql": ["CREATE TABLE accounts (id BIGSERIAL PRIMARY KEY, customer_name TEXT NOT NULL, balance_cents BIGINT NOT NULL CHECK (balance_cents >= 0)); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL); INSERT INTO accounts(customer_name, balance_cents) VALUES ('Demo Customer', 125000), ('Second Customer', 98000); INSERT INTO incident_notes(note) VALUES ('A payment update for account id 1 is waiting on a row lock.'), ('Look for an unusually old idle-in-transaction session.'), ('Do not delete the account or truncate tables to resolve the incident.');"],
+    "learner": {"statements": ["ALTER TABLE accounts OWNER TO {learner}", "ALTER SEQUENCE accounts_id_seq OWNER TO {learner}", "GRANT SELECT ON incident_notes TO {learner}", "GRANT pg_signal_backend TO {learner}", "GRANT pg_read_all_stats TO {learner}"]},
+    "roles": [{"alias": "worker", "prefix": "worker", "statements": ["GRANT CONNECT ON DATABASE {database} TO {role}", "GRANT USAGE ON SCHEMA public TO {role}", "GRANT SELECT, UPDATE ON accounts TO {role}"]}],
+    "faults": [{"type": "idle_transaction_lock", "role": "worker", "application_name": "legacy-payment-worker", "statements": ["BEGIN", "UPDATE accounts SET balance_cents = balance_cents WHERE id = 1"]}]
   },
   "evaluation": {
     "checks": [
-      {
-        "type": "session_count",
-        "name": "Stale blocking transaction cleared",
-        "filters": {"application_name": "legacy-payment-worker", "state": "idle in transaction"},
-        "operator": "eq",
-        "expected": 0,
-        "points": 55,
-        "feedback": "The stale legacy-payment-worker transaction is still open. Identify its PID and terminate that backend safely."
-      },
-      {
-        "type": "row_count",
-        "name": "Account data preserved",
-        "table": "accounts",
-        "operator": "eq",
-        "expected": 2,
-        "points": 20,
-        "feedback": "Production-style account data must remain intact; deleting rows is not a valid incident response."
-      },
-      {
-        "type": "query_succeeds",
-        "name": "Affected payment row is writable",
-        "sql": "UPDATE accounts SET balance_cents = balance_cents WHERE id = 1",
-        "lock_timeout_ms": 500,
-        "points": 25,
-        "feedback": "The affected account row is still locked by another transaction."
-      }
+      {"type": "session_count", "name": "Stale blocking transaction cleared", "filters": {"application_name": "legacy-payment-worker", "state": "idle in transaction"}, "operator": "eq", "expected": 0, "points": 55, "feedback": "The stale legacy-payment-worker transaction is still open. Identify its PID and terminate that backend safely."},
+      {"type": "row_count", "name": "Account data preserved", "table": "accounts", "operator": "eq", "expected": 2, "points": 20, "feedback": "Production-style account data must remain intact; deleting rows is not a valid incident response."},
+      {"type": "query_succeeds", "name": "Affected payment row is writable", "sql": "UPDATE accounts SET balance_cents = balance_cents WHERE id = 1", "lock_timeout_ms": 500, "points": 25, "feedback": "The affected account row is still locked by another transaction."}
     ],
     "success_feedback": "The blocking transaction is gone, the account data is intact, and normal writes can proceed again."
   }
