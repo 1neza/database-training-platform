@@ -13,6 +13,7 @@ function formatRemaining(deadline: string) {
 
 export default function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [selectedSlug, setSelectedSlug] = useState<string>("");
   const [name, setName] = useState("Learner");
   const [session, setSession] = useState<Session | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
@@ -21,13 +22,20 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const scenario = useMemo(
-    () => scenarios.find((s) => s.slug === session?.scenario_slug) || scenarios[0],
-    [scenarios, session]
-  );
+  const scenario = useMemo(() => {
+    if (session) {
+      return scenarios.find((item) => item.slug === session.scenario_slug);
+    }
+    return scenarios.find((item) => item.slug === selectedSlug);
+  }, [scenarios, selectedSlug, session]);
 
   useEffect(() => {
-    api.scenarios().then(setScenarios).catch((e) => setError(String(e)));
+    api.scenarios()
+      .then((items) => {
+        setScenarios(items);
+        if (items.length > 0) setSelectedSlug(items[0].slug);
+      })
+      .catch((e) => setError(String(e)));
   }, []);
 
   useEffect(() => {
@@ -73,7 +81,7 @@ export default function App() {
     setHints(data.hints);
   }
 
-  if (!scenario) {
+  if (scenarios.length === 0) {
     return <main className="shell"><p>Loading scenarios…</p></main>;
   }
 
@@ -87,40 +95,78 @@ export default function App() {
             Diagnose incidents, change a real PostgreSQL environment, and get scored against the actual system state.
           </p>
         </div>
-        <div className="badge">MVP 0.1</div>
+        <div className="badge">MVP 0.2</div>
       </header>
 
       {error && <div className="error">{error}</div>}
 
       {!session ? (
-        <section className="grid">
-          <article className="card">
-            <p className="eyebrow">SCENARIO</p>
-            <h2>{scenario.title}</h2>
-            <p>{scenario.summary}</p>
-            <div className="meta">
-              <span>{scenario.level}</span>
-              <span>{scenario.duration_minutes} min</span>
+        <>
+          <section className="catalogHeader">
+            <div>
+              <p className="eyebrow">SCENARIO CATALOG</p>
+              <h2>Choose your incident</h2>
+              <p className="catalogIntro">
+                Each lab launches an isolated PostgreSQL environment with a different production failure mode.
+              </p>
             </div>
+            <div className="scenarioCount">{scenarios.length} labs</div>
+          </section>
 
-            <label>
-              Learner name
-              <input value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
+          <section className="scenarioGrid">
+            {scenarios.map((item, index) => {
+              const selected = item.slug === selectedSlug;
+              return (
+                <button
+                  type="button"
+                  key={item.slug}
+                  className={`scenarioCard ${selected ? "selected" : ""}`}
+                  onClick={() => setSelectedSlug(item.slug)}
+                  aria-pressed={selected}
+                >
+                  <div className="scenarioNumber">0{index + 1}</div>
+                  <div>
+                    <p className="eyebrow">{item.level}</p>
+                    <h3>{item.title}</h3>
+                    <p>{item.summary}</p>
+                    <div className="meta">
+                      <span>{item.duration_minutes} min</span>
+                      <span>{item.objectives.length} objectives</span>
+                    </div>
+                  </div>
+                  <span className="selectMarker">{selected ? "Selected" : "Choose"}</span>
+                </button>
+              );
+            })}
+          </section>
 
-            <button disabled={busy} onClick={start}>
-              {busy ? "Provisioning lab…" : "Start production incident"}
-            </button>
-          </article>
+          {scenario && (
+            <section className="grid startPanel">
+              <article className="card">
+                <p className="eyebrow">SELECTED INCIDENT</p>
+                <h2>{scenario.title}</h2>
+                <p>{scenario.incident}</p>
 
-          <article className="card muted">
-            <p className="eyebrow">WHAT YOU WILL PRACTICE</p>
-            <ul>
-              {scenario.objectives.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </article>
-        </section>
-      ) : (
+                <label>
+                  Learner name
+                  <input value={name} onChange={(e) => setName(e.target.value)} />
+                </label>
+
+                <button disabled={busy} onClick={start}>
+                  {busy ? "Provisioning lab…" : "Start production incident"}
+                </button>
+              </article>
+
+              <article className="card muted">
+                <p className="eyebrow">WHAT YOU WILL PRACTICE</p>
+                <ol>
+                  {scenario.objectives.map((item) => <li key={item}>{item}</li>)}
+                </ol>
+              </article>
+            </section>
+          )}
+        </>
+      ) : scenario ? (
         <>
           <section className="incident">
             <div>
@@ -199,6 +245,8 @@ export default function App() {
             </section>
           )}
         </>
+      ) : (
+        <div className="error">The active scenario could not be loaded.</div>
       )}
     </main>
   );
