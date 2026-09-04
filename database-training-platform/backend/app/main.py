@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,7 +11,11 @@ from .config import settings
 from .db import Base, engine, get_db
 from .lab import teardown_lab
 from .models import SessionStatus, TrainingSession
-from .scenario_engine import evaluate_scenario, provision_scenario, validate_scenario_catalog
+from .scenario_engine import (
+    evaluate_scenario_definition,
+    provision_scenario,
+    validate_scenario_catalog,
+)
 from .schemas import EvaluationOut, ScenarioOut, SessionOut, StartSessionIn, TrackOut
 
 
@@ -38,7 +43,7 @@ async def startup():
 
 def _new_attempt_envelope(
     *,
-    scenario_version: str,
+    scenario: dict,
     attempt_number: int,
     session_id: uuid.UUID,
     replay_of_session_id: uuid.UUID | None = None,
@@ -46,13 +51,14 @@ def _new_attempt_envelope(
 ) -> dict:
     return {
         "meta": {
-            "scenario_version": scenario_version,
+            "scenario_version": scenario["version"],
             "attempt_number": attempt_number,
             "replay_of_session_id": str(replay_of_session_id) if replay_of_session_id else None,
             "root_session_id": str(root_session_id or session_id),
             "lab_active": True,
             "ended_early": False,
         },
+        "scenario_snapshot": copy.deepcopy(scenario),
         "evaluation": None,
     }
 
@@ -63,7 +69,6 @@ def _attempt_meta(row: TrainingSession) -> dict:
     if meta is not None:
         return meta
 
-    # Backward-compatible view for sessions created before attempt envelopes existed.
     scenario = SCENARIOS.get(row.scenario_slug, {})
     return {
         "scenario_version": scenario.get("version", "0.0.0"),
@@ -75,13 +80,23 @@ def _attempt_meta(row: TrainingSession) -> dict:
     }
 
 
+def _attempt_scenario(row: TrainingSession) -> dict:
+    if isinstance(row.result, dict):
+        snapshot = row.result.get("scenario_snapshot")
+        if isinstance(snapshot, dict):
+            return snapshot
+    scenario = SCENARIOS.get(row.scenario_slug)
+    if scenario is None:
+        raise HTTPException(409, "The scenario definition for this legacy attempt is unavailable")
+    return scenario
+
+
 def _evaluation_result(row: TrainingSession) -> dict | None:
     if not isinstance(row.result, dict):
         return None
     if "meta" in row.result:
         value = row.result.get("evaluation")
         return value if isinstance(value, dict) else None
-    # Legacy rows stored the evaluation directly.
     return row.result
 
 
@@ -101,6 +116,7 @@ def _set_attempt_state(
     current_evaluation = _evaluation_result(row)
     row.result = {
         "meta": meta,
+        "scenario_snapshot": copy.deepcopy(_attempt_scenario(row)),
         "evaluation": evaluation if evaluation is not None else current_evaluation,
     }
 
@@ -188,9 +204,7 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
         raise HTTPException(404, "Scenario not found")
 
     sid = uuid.uuid4()
-    short_id = sid.hex[:10]
-    creds = await provision_scenario(payload.scenario_slug, short_id)
-
+    creds = await provision_scenario(payload.scenario_slug, sid.hex[:10])
     now = datetime.now(timezone.utc)
     row = TrainingSession(
         id=sid,
@@ -204,7 +218,7 @@ async def start_session(payload: StartSessionIn, db: AsyncSession = Depends(get_
         started_at=now,
         deadline_at=now + timedelta(minutes=scenario["duration_minutes"]),
         result=_new_attempt_envelope(
-            scenario_version=scenario["version"],
+            scenario=scenario,
             attempt_number=1,
             session_id=sid,
         ),
@@ -242,7 +256,7 @@ async def evaluate(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         await _finish_runtime(row, db, ended_early=False)
         raise HTTPException(409, "This attempt has expired")
 
-    result = await evaluate_scenario(row.scenario_slug, row.database_name)
+    result = await evaluate_scenario_definition(_attempt_scenario(row), row.database_name)
 
     row.score = result["score"]
     _set_attempt_state(row, evaluation=result)
@@ -293,7 +307,7 @@ async def replay_session(session_id: uuid.UUID, db: AsyncSession = Depends(get_d
         started_at=now,
         deadline_at=now + timedelta(minutes=scenario["duration_minutes"]),
         result=_new_attempt_envelope(
-            scenario_version=scenario["version"],
+            scenario=scenario,
             attempt_number=int(source_meta.get("attempt_number", 1)) + 1,
             session_id=sid,
             replay_of_session_id=source.id,
