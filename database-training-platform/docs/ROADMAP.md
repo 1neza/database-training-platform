@@ -17,7 +17,7 @@
 ## Phase 2 — Real DBA incidents
 - [x] Lock contention / stale transaction
 - [x] Connection-pool exhaustion
-- [ ] Deadlock
+- [x] Deadlock
 - [ ] Long-running transaction without row-lock incident
 - [ ] Disk pressure
 - [ ] Table bloat / VACUUM
@@ -29,15 +29,32 @@
 
 ## Phase 2.5 — Scenario authoring engine
 - [x] Scenario-agnostic API routing
-- [x] Provisioner registry
 - [x] Declarative evaluation engine
 - [x] Catalog validation at application startup
-- [ ] Declarative schema/data setup primitives
-- [ ] Reusable fault-injection primitives
+- [x] Declarative SQL/data setup
+- [x] Generated service roles and learner grant/ownership setup
+- [x] Reusable fault-injection primitives
+- [x] Generic runtime connection/role teardown
 - [ ] Scenario definitions loaded from YAML/JSON files
 - [ ] Scenario authoring validation CLI
 - [ ] Scenario versioning
 - [ ] Scenario reset/replay
+- [ ] Named reusable dataset templates
+- [ ] Named workload templates
+
+Current reusable fault primitives:
+- persistent idle transaction / row lock
+- runaway connection pool
+- concurrent deadlock reproduction
+
+Current reusable grading primitives:
+- index prefix
+- query plan uses index
+- row count
+- session count
+- scalar SQL equality
+- query succeeds under lock timeout
+- concurrent SQL completes without deadlock
 
 ## Phase 3 — Learning engine
 - [ ] User accounts and persistent progress
