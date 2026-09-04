@@ -10,6 +10,8 @@ from .config import settings
 _SAFE_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _BLOCKERS: dict[str, asyncpg.Connection] = {}
 _BLOCKER_ROLES: dict[str, str] = {}
+_PRESSURE_CONNECTIONS: dict[str, list[asyncpg.Connection]] = {}
+_PRESSURE_ROLES: dict[str, str] = {}
 
 
 def ident(value: str) -> str:
@@ -47,6 +49,25 @@ async def _role_connect(database: str, username: str, password: str):
         password=password,
         database=database,
     )
+
+
+def _terminate_connection_quietly(conn: asyncpg.Connection) -> None:
+    if conn.is_closed():
+        return
+    try:
+        conn.terminate()
+    except Exception:
+        pass
+
+
+async def _create_login_role(role: str, password: str) -> None:
+    admin = await _admin_connect()
+    try:
+        await admin.execute(
+            f"CREATE ROLE {ident(role)} LOGIN PASSWORD {literal(password)}"
+        )
+    finally:
+        await admin.close()
 
 
 async def _create_lab_identity(session_short_id: str) -> LabCredentials:
@@ -146,14 +167,7 @@ async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
     username = creds.username
     worker_role = f"worker_{session_short_id}"
     worker_password = secrets.token_urlsafe(18)
-
-    admin = await _admin_connect()
-    try:
-        await admin.execute(
-            f"CREATE ROLE {ident(worker_role)} LOGIN PASSWORD {literal(worker_password)}"
-        )
-    finally:
-        await admin.close()
+    await _create_login_role(worker_role, worker_password)
 
     conn = await _admin_connect(creds.database)
     try:
@@ -202,16 +216,76 @@ async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
     return creds
 
 
+async def provision_connection_pressure(session_short_id: str) -> LabCredentials:
+    creds = await _create_lab_identity(session_short_id)
+    username = creds.username
+    pool_role = f"pool_{session_short_id}"
+    pool_password = secrets.token_urlsafe(18)
+    await _create_login_role(pool_role, pool_password)
+
+    conn = await _admin_connect(creds.database)
+    try:
+        await conn.execute("""
+            CREATE TABLE service_config (
+                id INTEGER PRIMARY KEY,
+                service_name TEXT NOT NULL,
+                expected_pool_size INTEGER NOT NULL CHECK (expected_pool_size > 0)
+            );
+
+            CREATE TABLE incident_notes (
+                id BIGSERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                note TEXT NOT NULL
+            );
+
+            INSERT INTO service_config(id, service_name, expected_pool_size)
+            VALUES (1, 'checkout-api', 3);
+
+            INSERT INTO incident_notes(note) VALUES
+            ('The checkout API normally keeps no more than three idle database sessions.'),
+            ('The incident was triggered by a runaway application connection pool.'),
+            ('Do not terminate unrelated administrative or learner sessions.');
+        """)
+
+        await conn.execute(f"""
+            GRANT SELECT ON service_config, incident_notes TO {ident(username)};
+            GRANT pg_signal_backend TO {ident(username)};
+            GRANT pg_read_all_stats TO {ident(username)};
+            GRANT CONNECT ON DATABASE {ident(creds.database)} TO {ident(pool_role)};
+        """)
+    finally:
+        await conn.close()
+
+    pool_connections: list[asyncpg.Connection] = []
+    try:
+        for _ in range(12):
+            pool_conn = await _role_connect(creds.database, pool_role, pool_password)
+            await pool_conn.execute("SET application_name = 'checkout-api-pool'")
+            await pool_conn.fetchval("SELECT 1")
+            pool_connections.append(pool_conn)
+    except Exception:
+        for pool_conn in pool_connections:
+            _terminate_connection_quietly(pool_conn)
+        raise
+
+    _PRESSURE_CONNECTIONS[creds.database] = pool_connections
+    _PRESSURE_ROLES[creds.database] = pool_role
+    return creds
+
+
 async def connect_as_admin(database: str):
     return await _admin_connect(database)
 
 
 async def teardown_lab(database: str, username: str):
     blocker = _BLOCKERS.pop(database, None)
-    if blocker is not None and not blocker.is_closed():
-        await blocker.close()
-
+    if blocker is not None:
+        _terminate_connection_quietly(blocker)
     blocker_role = _BLOCKER_ROLES.pop(database, None)
+
+    for pool_conn in _PRESSURE_CONNECTIONS.pop(database, []):
+        _terminate_connection_quietly(pool_conn)
+    pressure_role = _PRESSURE_ROLES.pop(database, None)
 
     admin = await _admin_connect()
     try:
@@ -222,6 +296,8 @@ async def teardown_lab(database: str, username: str):
         await admin.execute(f"DROP DATABASE IF EXISTS {ident(database)}")
         if blocker_role:
             await admin.execute(f"DROP ROLE IF EXISTS {ident(blocker_role)}")
+        if pressure_role:
+            await admin.execute(f"DROP ROLE IF EXISTS {ident(pressure_role)}")
         await admin.execute(f"DROP ROLE IF EXISTS {ident(username)}")
     finally:
         await admin.close()
