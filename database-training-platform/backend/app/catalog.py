@@ -41,9 +41,35 @@ SCENARIOS = {
             "The application frequently filters by customer_id and asks for the newest orders.",
             "A useful index can serve both filtering and ordering when its column order matches the query.",
         ],
-        "runtime": {
-            "provisioner": "slow_checkout",
-            "evaluator": "slow_checkout",
+        "runtime": {"provisioner": "slow_checkout"},
+        "evaluation": {
+            "checks": [
+                {
+                    "type": "index_prefix",
+                    "name": "Composite index exists",
+                    "table": "orders",
+                    "columns": ["customer_id", "created_at"],
+                    "points": 50,
+                    "feedback": "Create an index whose leading columns match the filter and ordering pattern, for example customer_id followed by created_at.",
+                },
+                {
+                    "type": "query_plan_uses_index",
+                    "name": "Challenge query uses an index",
+                    "sql": "SELECT id, status, total_cents, created_at FROM orders WHERE customer_id = 4242 ORDER BY created_at DESC LIMIT 20",
+                    "points": 40,
+                    "feedback": "The checkout query is still not receiving an indexed plan.",
+                },
+                {
+                    "type": "row_count",
+                    "name": "Production data preserved",
+                    "table": "orders",
+                    "operator": "gte",
+                    "expected": 350000,
+                    "points": 10,
+                    "feedback": "The task must be solved without deleting the production dataset.",
+                },
+            ],
+            "success_feedback": "The environment now has an index aligned with the production lookup pattern, and PostgreSQL can use it for the challenge query.",
         },
     },
     "blocked-payment-transaction": {
@@ -68,9 +94,40 @@ SCENARIOS = {
             "Look for a session that is idle in transaction and has been open much longer than expected.",
             "This lab grants the learner permission to signal backends inside the isolated training server.",
         ],
-        "runtime": {
-            "provisioner": "blocked_payment",
-            "evaluator": "blocked_payment",
+        "runtime": {"provisioner": "blocked_payment"},
+        "evaluation": {
+            "checks": [
+                {
+                    "type": "session_count",
+                    "name": "Stale blocking transaction cleared",
+                    "filters": {
+                        "application_name": "legacy-payment-worker",
+                        "state": "idle in transaction",
+                    },
+                    "operator": "eq",
+                    "expected": 0,
+                    "points": 55,
+                    "feedback": "The stale legacy-payment-worker transaction is still open. Identify its PID and terminate that backend safely.",
+                },
+                {
+                    "type": "row_count",
+                    "name": "Account data preserved",
+                    "table": "accounts",
+                    "operator": "eq",
+                    "expected": 2,
+                    "points": 20,
+                    "feedback": "Production-style account data must remain intact; deleting rows is not a valid incident response.",
+                },
+                {
+                    "type": "query_succeeds",
+                    "name": "Affected payment row is writable",
+                    "sql": "UPDATE accounts SET balance_cents = balance_cents WHERE id = 1",
+                    "lock_timeout_ms": 500,
+                    "points": 25,
+                    "feedback": "The affected account row is still locked by another transaction.",
+                },
+            ],
+            "success_feedback": "The blocking transaction is gone, the account data is intact, and normal writes can proceed again.",
         },
     },
     "connection-pool-exhaustion": {
@@ -96,9 +153,36 @@ SCENARIOS = {
             "The abnormal sessions all share the same application_name.",
             "The target is to leave a small healthy pool rather than terminate every database session indiscriminately.",
         ],
-        "runtime": {
-            "provisioner": "connection_pressure",
-            "evaluator": "connection_pressure",
+        "runtime": {"provisioner": "connection_pressure"},
+        "evaluation": {
+            "checks": [
+                {
+                    "type": "session_count",
+                    "name": "Runaway checkout pool reduced",
+                    "filters": {"application_name": "checkout-api-pool"},
+                    "operator": "lte",
+                    "expected": 3,
+                    "points": 65,
+                    "feedback": "The checkout API still has too many sessions. Identify only the checkout-api-pool backends and reduce the pool to three or fewer.",
+                },
+                {
+                    "type": "scalar_equals",
+                    "name": "Service configuration preserved",
+                    "sql": "SELECT expected_pool_size FROM service_config WHERE id = 1 AND service_name = 'checkout-api'",
+                    "expected": 3,
+                    "points": 20,
+                    "feedback": "The incident should be mitigated by handling database sessions, not by deleting or corrupting the service configuration.",
+                },
+                {
+                    "type": "scalar_equals",
+                    "name": "Database remains responsive",
+                    "sql": "SELECT 1",
+                    "expected": 1,
+                    "points": 15,
+                    "feedback": "The database is not responding normally after the attempted mitigation.",
+                },
+            ],
+            "success_feedback": "Connection pressure is back within the expected pool size, configuration is intact, and the database remains responsive.",
         },
     },
 }

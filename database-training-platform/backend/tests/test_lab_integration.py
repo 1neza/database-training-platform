@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.evaluator import evaluate_slow_checkout
 from app.lab import provision_slow_checkout, teardown_lab
+from app.scenario_engine import evaluate_scenario
 
 
 def test_slow_checkout_lab_can_be_fixed_and_evaluated():
@@ -15,7 +15,7 @@ async def _exercise_slow_checkout_lab():
     creds = await provision_slow_checkout("ci001")
 
     try:
-        before = await evaluate_slow_checkout(creds.database)
+        before = await evaluate_scenario("slow-checkout-query", creds.database)
         assert before["passed"] is False
         assert before["score"] < 100
 
@@ -35,7 +35,7 @@ async def _exercise_slow_checkout_lab():
         finally:
             await learner.close()
 
-        after = await evaluate_slow_checkout(creds.database)
+        after = await evaluate_scenario("slow-checkout-query", creds.database)
         assert after["passed"] is True
         assert after["score"] == 100
         assert all(check["passed"] for check in after["checks"])
