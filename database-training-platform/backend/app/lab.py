@@ -163,14 +163,15 @@ async def provision_blocked_payment(session_short_id: str) -> LabCredentials:
         await conn.execute(f"""
             GRANT SELECT ON incident_notes TO {ident(username)};
             GRANT pg_signal_backend TO {ident(username)};
+            GRANT pg_read_all_stats TO {ident(username)};
         """)
     finally:
         await conn.close()
 
     blocker = await _admin_connect(creds.database)
+    await blocker.execute("SET application_name = 'legacy-payment-worker'")
     await blocker.execute("BEGIN")
     await blocker.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
-    await blocker.execute("SET application_name = 'legacy-payment-worker'")
     _BLOCKERS[creds.database] = blocker
 
     return creds
