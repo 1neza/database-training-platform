@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.lab import provision_slow_checkout, teardown_lab
-from app.scenario_engine import evaluate_scenario
+from app.lab import teardown_lab
+from app.scenario_engine import evaluate_scenario, provision_scenario
 
 
 def test_slow_checkout_lab_can_be_fixed_and_evaluated():
@@ -12,7 +12,7 @@ def test_slow_checkout_lab_can_be_fixed_and_evaluated():
 
 
 async def _exercise_slow_checkout_lab():
-    creds = await provision_slow_checkout("ci001")
+    creds = await provision_scenario("slow-checkout-query", "ci001")
 
     try:
         before = await evaluate_scenario("slow-checkout-query", creds.database)

@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.lab import provision_blocked_payment, teardown_lab
-from app.scenario_engine import evaluate_scenario
+from app.lab import teardown_lab
+from app.scenario_engine import evaluate_scenario, provision_scenario
 
 
 def test_blocked_payment_lab_can_be_diagnosed_and_recovered():
@@ -12,7 +12,7 @@ def test_blocked_payment_lab_can_be_diagnosed_and_recovered():
 
 
 async def _exercise_blocked_payment_lab():
-    creds = await provision_blocked_payment("ci002")
+    creds = await provision_scenario("blocked-payment-transaction", "ci002")
 
     try:
         before = await evaluate_scenario("blocked-payment-transaction", creds.database)
