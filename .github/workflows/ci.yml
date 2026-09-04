@@ -11,6 +11,8 @@ jobs:
     defaults:
       run:
         working-directory: database-training-platform/backend
+    env:
+      PYTHONPATH: .
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +33,7 @@ jobs:
         run: python -m compileall app
 
       - name: Run backend tests
-        run: pytest -q
+        run: python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
