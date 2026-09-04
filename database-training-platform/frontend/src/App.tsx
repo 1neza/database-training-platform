@@ -5,6 +5,7 @@ import type {
   Evaluation,
   Learner,
   LearnerProgress,
+  LearningPath,
   Scenario,
   Session,
 } from "./types";
@@ -29,6 +30,10 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function compactSkill(slug: string) {
+  return slug.replace("postgresql.", "").replaceAll("-", " ");
+}
+
 export default function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string>("");
@@ -36,6 +41,7 @@ export default function App() {
   const [learner, setLearner] = useState<Learner | null>(null);
   const [attempts, setAttempts] = useState<AttemptHistory[]>([]);
   const [progress, setProgress] = useState<LearnerProgress | null>(null);
+  const [learningPath, setLearningPath] = useState<LearningPath | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [hints, setHints] = useState<string[]>([]);
@@ -48,13 +54,20 @@ export default function App() {
     return scenarios.find((item) => item.slug === selectedSlug);
   }, [scenarios, selectedSlug, session]);
 
+  const selectedReadiness = useMemo(
+    () => learningPath?.scenarios.find((item) => item.scenario_slug === selectedSlug),
+    [learningPath, selectedSlug],
+  );
+
   async function refreshLearnerData(learnerId: string) {
-    const [history, summary] = await Promise.all([
+    const [history, summary, path] = await Promise.all([
       api.learnerAttempts(learnerId),
       api.learnerProgress(learnerId),
+      api.learnerLearningPath(learnerId),
     ]);
     setAttempts(history);
     setProgress(summary);
+    setLearningPath(path);
   }
 
   useEffect(() => {
@@ -93,6 +106,7 @@ export default function App() {
     window.localStorage.setItem(LEARNER_STORAGE_KEY, profile.id);
     setLearner(profile);
     setName(profile.display_name);
+    await refreshLearnerData(profile.id);
     return profile;
   }
 
@@ -177,6 +191,7 @@ export default function App() {
     setLearner(null);
     setAttempts([]);
     setProgress(null);
+    setLearningPath(null);
     setName("Learner");
   }
 
@@ -194,7 +209,7 @@ export default function App() {
             Diagnose incidents, change a real PostgreSQL environment, and build a measurable record of production database skills.
           </p>
         </div>
-        <div className="badge">MVP 0.4</div>
+        <div className="badge">MVP 0.5</div>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -207,7 +222,7 @@ export default function App() {
                 <div>
                   <p className="eyebrow">LEARNER PROGRESS</p>
                   <h2>{learner.display_name}</h2>
-                  <p className="catalogIntro">Your completed work now stays attached to this learner profile.</p>
+                  <p className="catalogIntro">Your history now drives which incidents are ready, recommended, or still locked.</p>
                 </div>
                 <button className="secondary" onClick={switchLearner}>Use another learner</button>
               </div>
@@ -217,10 +232,16 @@ export default function App() {
                 <div className="stat"><strong>{progress.scenarios_attempted}</strong><span>Scenarios tried</span></div>
                 <div className="stat"><strong>{progress.scenarios_passed}</strong><span>Scenarios passed</span></div>
                 <div className="stat">
-                  <strong>{progress.average_best_score === null ? "—" : Math.round(progress.average_best_score)}</strong>
-                  <span>Avg. best score</span>
+                  <strong>{learningPath?.mastered_skills.length ?? 0}</strong>
+                  <span>Skills mastered</span>
                 </div>
               </div>
+
+              {learningPath && learningPath.mastered_skills.length > 0 && (
+                <div className="skillStrip">
+                  {learningPath.mastered_skills.map((skill) => <span key={skill.slug}>{skill.name}</span>)}
+                </div>
+              )}
 
               {attempts.length > 0 && (
                 <div className="history">
@@ -244,10 +265,10 @@ export default function App() {
 
           <section className="catalogHeader">
             <div>
-              <p className="eyebrow">SCENARIO CATALOG</p>
-              <h2>Choose your incident</h2>
+              <p className="eyebrow">LEARNING PATH</p>
+              <h2>Choose your next incident</h2>
               <p className="catalogIntro">
-                Each lab launches an isolated PostgreSQL environment with a different production failure mode.
+                Foundational labs unlock harder production incidents as you demonstrate the required skills.
               </p>
             </div>
             <div className="scenarioCount">{scenarios.length} labs</div>
@@ -257,28 +278,40 @@ export default function App() {
             {scenarios.map((item, index) => {
               const selected = item.slug === selectedSlug;
               const scenarioProgress = progress?.scenario_progress.find((p) => p.scenario_slug === item.slug);
+              const readiness = learningPath?.scenarios.find((entry) => entry.scenario_slug === item.slug);
+              const state = readiness?.state ?? "ready";
               return (
                 <button
                   type="button"
                   key={item.slug}
-                  className={`scenarioCard ${selected ? "selected" : ""}`}
+                  className={`scenarioCard ${selected ? "selected" : ""} ${state}`}
                   onClick={() => setSelectedSlug(item.slug)}
                   aria-pressed={selected}
                 >
-                  <div className="scenarioNumber">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="scenarioTopline">
+                    <div className="scenarioNumber">{String(index + 1).padStart(2, "0")}</div>
+                    {readiness && (
+                      <span className={`readiness ${state}`}>
+                        {readiness.recommended ? "Recommended" : state}
+                      </span>
+                    )}
+                  </div>
                   <div>
                     <p className="eyebrow">{item.level} · v{item.version}</p>
                     <h3>{item.title}</h3>
                     <p>{item.summary}</p>
                     <div className="meta">
                       <span>{item.duration_minutes} min</span>
-                      <span>{item.objectives.length} objectives</span>
+                      <span>{item.skills.length} skills</span>
                       {scenarioProgress?.best_score !== null && scenarioProgress?.best_score !== undefined && (
                         <span>Best {scenarioProgress.best_score}/100</span>
                       )}
                     </div>
+                    {readiness?.missing_prerequisites.length ? (
+                      <p className="missingSkills">Requires: {readiness.missing_prerequisites.map(compactSkill).join(", ")}</p>
+                    ) : null}
                   </div>
-                  <span className="selectMarker">{selected ? "Selected" : "Choose"}</span>
+                  <span className="selectMarker">{selected ? "Selected" : "View"}</span>
                 </button>
               );
             })}
@@ -291,6 +324,17 @@ export default function App() {
                 <h2>{scenario.title}</h2>
                 <p>{scenario.incident}</p>
 
+                <div className="skillStrip">
+                  {scenario.skills.map((skill) => <span key={skill}>{compactSkill(skill)}</span>)}
+                </div>
+
+                {selectedReadiness?.state === "locked" && (
+                  <div className="lockNotice">
+                    <strong>Complete prerequisite skills first.</strong>
+                    <p>{selectedReadiness.missing_prerequisites.map(compactSkill).join(", ")}</p>
+                  </div>
+                )}
+
                 <label>
                   Learner name
                   <input
@@ -300,8 +344,14 @@ export default function App() {
                   />
                 </label>
 
-                <button disabled={busy} onClick={start}>
-                  {busy ? "Provisioning lab…" : "Start production incident"}
+                <button disabled={busy || selectedReadiness?.state === "locked"} onClick={start}>
+                  {busy
+                    ? "Provisioning lab…"
+                    : selectedReadiness?.state === "locked"
+                      ? "Prerequisites required"
+                      : selectedReadiness?.recommended
+                        ? "Start recommended incident"
+                        : "Start production incident"}
                 </button>
               </article>
 
