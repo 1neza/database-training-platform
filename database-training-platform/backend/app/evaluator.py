@@ -1,3 +1,5 @@
+import json
+
 from .lab import connect_as_admin
 
 
@@ -36,7 +38,7 @@ async def evaluate_slow_checkout(database: str) -> dict:
                 "for example customer_id followed by created_at."
             )
 
-        plan_rows = await conn.fetch("""
+        plan_value = await conn.fetchval("""
             EXPLAIN (FORMAT JSON)
             SELECT id, status, total_cents, created_at
             FROM orders
@@ -44,7 +46,9 @@ async def evaluate_slow_checkout(database: str) -> dict:
             ORDER BY created_at DESC
             LIMIT 20
         """)
-        plan = plan_rows[0][0][0]["Plan"]
+        if isinstance(plan_value, str):
+            plan_value = json.loads(plan_value)
+        plan = plan_value[0]["Plan"]
 
         def contains_index(node):
             if "Index" in node.get("Node Type", ""):
