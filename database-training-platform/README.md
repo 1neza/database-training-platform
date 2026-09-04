@@ -8,16 +8,20 @@ The core product principle is simple: **learn database engineering by doing the 
 
 The MVP currently includes:
 
-- five real PostgreSQL DBA incidents
+- nine real PostgreSQL DBA incidents
 - selectable React/Vite learner catalog
+- lightweight durable learner profile, attempt history and progress
+- skill graph, prerequisites and locked/ready/completed learning states
+- deterministic recommendations, weak-skill detection and adaptive difficulty targeting
+- spaced-repetition review scheduling
+- deterministic portfolio/evidence generation
 - per-attempt PostgreSQL database and generated learner login
 - timed incidents, objectives and hints
 - deterministic 100-point grading against live PostgreSQL state
 - file-authored, semantically versioned JSON scenarios
 - immutable scenario snapshot per attempt
 - finish/replay lifecycle with preserved attempt records
-- reusable versioned dataset templates
-- reusable versioned workload templates
+- reusable versioned dataset and workload templates
 - declarative provisioning and fault injection
 - declarative grading rules
 - scenario validation CLI enforced in CI
@@ -29,27 +33,15 @@ The MVP currently includes:
 
 ## Implemented incidents
 
-### 1. Slow Checkout Query
-
-An e-commerce `orders` table has grown to hundreds of thousands of rows and a customer checkout lookup is inefficient. The learner inspects the plan, designs the appropriate composite index and verifies PostgreSQL uses it.
-
-This lab reuses `ecommerce-orders-medium@1.0.0` and the named `checkout-customer-history@1.0.0` workload.
-
-### 2. Blocked Payment Transaction
-
-A stale `idle in transaction` application session holds a row lock on a payment account. The learner inspects PostgreSQL activity, identifies the service backend, terminates the correct blocker and verifies writes work again.
-
-### 3. Connection Pool Exhaustion
-
-A runaway checkout service creates twelve PostgreSQL sessions when the expected healthy pool size is three. The learner identifies the offending pool and terminates only the excess connections.
-
-### 4. Deadlocking Transfer Procedures
-
-Two transfer functions acquire the same account rows in opposite order. Provisioning reproduces a real PostgreSQL deadlock before the learner receives the lab. The learner fixes lock ordering and the grader reruns the two paths concurrently.
-
-### 5. Stale Reporting Transaction
-
-A weekly reporting worker finishes its query but leaves a transaction open. The learner finds the old `idle in transaction` session, terminates only the reporting backend and preserves the shared e-commerce dataset.
+1. **Slow Checkout Query** — inspect a production lookup plan, add the right composite index and verify PostgreSQL uses it.
+2. **Blocked Payment Transaction** — identify and clear a stale row-lock blocker without deleting account data.
+3. **Connection Pool Exhaustion** — reduce a runaway application pool to a healthy size while preserving unrelated sessions.
+4. **Deadlocking Transfer Procedures** — reproduce and fix inconsistent lock ordering, then prove concurrent execution no longer deadlocks.
+5. **Stale Reporting Transaction** — clear an old idle-in-transaction reporting session and preserve the shared e-commerce dataset.
+6. **Excessive Analytics Privileges** — audit an analytics role and revoke INSERT/UPDATE/DELETE while preserving required SELECT access.
+7. **Failed Deployment Migration** — complete a partial column backfill, enforce NOT NULL, preserve rows and update the migration ledger.
+8. **Table Bloat and VACUUM** — diagnose post-delete maintenance state, run safe VACUUM/ANALYZE and preserve all live events.
+9. **Logical Backup Restore** — compare live data with a recent logical snapshot and selectively restore only missing rows.
 
 ## Run locally
 
@@ -74,13 +66,14 @@ psql -h localhost -p 55432 -U <generated_user> -d <generated_database>
 ## Learner flow
 
 1. Choose an incident from the scenario catalog.
-2. Start a versioned attempt.
-3. Connect to its generated PostgreSQL lab.
-4. Diagnose and apply a safe fix.
-5. Evaluate the real environment.
-6. Review checks, score and feedback.
-7. Finish the attempt to destroy the PostgreSQL runtime while preserving the attempt record.
-8. Replay the incident when desired; the replay creates a fresh lab and links the new attempt to the previous one.
+2. Review whether it is ready, locked, completed or recommended for the current learner.
+3. Start a versioned attempt.
+4. Connect to its generated PostgreSQL lab.
+5. Diagnose and apply a safe fix.
+6. Evaluate the real environment.
+7. Review deterministic checks, score and feedback.
+8. Finish the attempt to destroy the PostgreSQL runtime while preserving the learning record.
+9. Replay when needed; the new attempt is linked to the previous one and uses the current scenario version.
 
 Each attempt stores an immutable snapshot of the scenario definition it began with. If the scenario is later upgraded, an existing attempt still grades against its original definition; a replay intentionally uses the current version.
 
@@ -92,7 +85,12 @@ React / Vite learner UI
        FastAPI
           |
           +---- Platform PostgreSQL
-          |       durable attempts / evaluations
+          |       learner profiles / attempts / evaluations
+          |
+          +---- Learning Engine
+          |       skills / prerequisites / recommendations
+          |       adaptive difficulty / spaced repetition
+          |       portfolio evidence
           |
           +---- Scenario Catalog
           |       backend/scenarios/*.json
@@ -119,7 +117,7 @@ Scenario definitions live in `backend/scenarios/*.json`. Reusable assets live in
 - `backend/datasets/*.json`
 - `backend/workloads/*.json`
 
-Scenarios reference dataset/workload assets by **slug + exact semantic version**. A scenario definition also declares its own semantic version. When a scenario's behavior, provisioning or grading changes, its version should be bumped.
+Each scenario declares semantic version, track, skills, prerequisite skills, difficulty, provisioning and evaluation rules. Scenarios reference dataset/workload assets by **slug + exact semantic version**.
 
 Validate authoring changes from `database-training-platform/backend`:
 
@@ -127,7 +125,7 @@ Validate authoring changes from `database-training-platform/backend`:
 python -m app.validate_scenarios
 ```
 
-Validation covers scenario metadata, semantic versions, track references, dataset references and versions, workload SQL references and versions, provisioning structure, fault references, grading primitives and 100-point totals.
+Validation covers scenario metadata, semantic versions, track references, skill/prerequisite references, difficulty, reusable asset references, provisioning structure, fault references, grading primitives and 100-point totals.
 
 Current reusable fault primitives:
 
@@ -171,16 +169,20 @@ docker compose down -v
 
 ## Next product milestones
 
-The authoring engine is now sufficiently reusable for the MVP. The next product layer is the **learning engine**:
+Near-term DBA content gaps:
 
-- learner identity/accounts
-- persistent attempt-history UI and API
-- progress summary per scenario and skill
-- skill graph and prerequisites
-- scenario recommendations and adaptive difficulty
-- evidence/portfolio reports
+- disk pressure
+- replica lag
+- failover / disaster recovery
 
-In parallel, the DBA catalog can grow with disk pressure, VACUUM/table-bloat, permissions, failed migrations, backup/restore, replication lag and failover incidents.
+Near-term product gaps:
+
+- authenticated user accounts and account recovery
+- learner-facing portfolio API/UI/export
+- dedicated weak-area drill scenarios
+- stronger production lab isolation and automatic expiry/cleanup
+
+After the PostgreSQL track is broad enough, the platform can expand into data-engineering incidents with Kafka, Debezium CDC, Airflow, streaming data quality and warehouse failures.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the wider roadmap.
 
