@@ -73,4 +73,32 @@ SCENARIOS = {
             "evaluator": "blocked_payment",
         },
     },
+    "connection-pool-exhaustion": {
+        "slug": "connection-pool-exhaustion",
+        "track_slug": "postgresql-dba",
+        "title": "Connection Pool Exhaustion",
+        "level": "intermediate",
+        "duration_minutes": 30,
+        "summary": "A runaway application pool opened far more PostgreSQL sessions than expected and is consuming connection capacity.",
+        "incident": (
+            "16:40 — New API requests intermittently fail to obtain a database connection. "
+            "The checkout service has accumulated an abnormal number of idle sessions. "
+            "Identify the offending pool, reduce connection pressure safely, and verify the database can still accept fresh work."
+        ),
+        "objectives": [
+            "Inspect pg_stat_activity and group sessions by application_name/state.",
+            "Identify the runaway checkout API pool.",
+            "Reduce unnecessary sessions without damaging application data.",
+            "Verify healthy connection capacity remains available.",
+        ],
+        "hints": [
+            "Group pg_stat_activity by application_name and state before killing anything.",
+            "The abnormal sessions all share the same application_name.",
+            "The target is to leave a small healthy pool rather than terminate every database session indiscriminately.",
+        ],
+        "runtime": {
+            "provisioner": "connection_pressure",
+            "evaluator": "connection_pressure",
+        },
+    },
 }

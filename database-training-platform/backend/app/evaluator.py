@@ -136,8 +136,6 @@ async def evaluate_blocked_payment(database: str) -> dict:
 
         row_writable = False
         try:
-            # Use a session-level timeout so the evaluator itself can never hang
-            # while probing the deliberately locked row.
             await conn.execute("SET lock_timeout = '500ms'")
             await conn.execute("UPDATE accounts SET balance_cents = balance_cents WHERE id = 1")
             row_writable = True
@@ -163,6 +161,77 @@ async def evaluate_blocked_payment(database: str) -> dict:
         if passed:
             feedback.append(
                 "The blocking transaction is gone, the account data is intact, and normal writes can proceed again."
+            )
+
+        return {
+            "passed": passed,
+            "score": score,
+            "checks": checks,
+            "feedback": feedback,
+        }
+    finally:
+        await conn.close()
+
+
+async def evaluate_connection_pressure(database: str) -> dict:
+    conn = await connect_as_admin(database)
+    checks = []
+    feedback = []
+    score = 0
+
+    try:
+        pool_count = await conn.fetchval("""
+            SELECT count(*)
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = 'checkout-api-pool'
+        """)
+        pool_healthy = pool_count <= 3
+        checks.append({
+            "name": "Runaway checkout pool reduced",
+            "passed": pool_healthy,
+            "detail": f"checkout-api-pool sessions still open: {pool_count}; target: <= 3",
+        })
+        if pool_healthy:
+            score += 65
+        else:
+            feedback.append(
+                "The checkout API still has too many sessions. Identify only the checkout-api-pool backends and reduce the pool to three or fewer."
+            )
+
+        expected_pool_size = await conn.fetchval("""
+            SELECT expected_pool_size
+            FROM service_config
+            WHERE id = 1 AND service_name = 'checkout-api'
+        """)
+        config_preserved = expected_pool_size == 3
+        checks.append({
+            "name": "Service configuration preserved",
+            "passed": config_preserved,
+            "detail": f"configured expected pool size: {expected_pool_size}",
+        })
+        if config_preserved:
+            score += 20
+        else:
+            feedback.append(
+                "The incident should be mitigated by handling database sessions, not by deleting or corrupting the service configuration."
+            )
+
+        database_responsive = await conn.fetchval("SELECT 1") == 1
+        checks.append({
+            "name": "Database remains responsive",
+            "passed": database_responsive,
+            "detail": "A fresh health query must complete successfully after mitigation.",
+        })
+        if database_responsive:
+            score += 15
+        else:
+            feedback.append("The database is not responding normally after the attempted mitigation.")
+
+        passed = pool_healthy and config_preserved and database_responsive
+        if passed:
+            feedback.append(
+                "Connection pressure is back within the expected pool size, configuration is intact, and the database remains responsive."
             )
 
         return {

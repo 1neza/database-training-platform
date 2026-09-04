@@ -2,8 +2,17 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from .catalog import SCENARIOS
-from .evaluator import evaluate_blocked_payment, evaluate_slow_checkout
-from .lab import LabCredentials, provision_blocked_payment, provision_slow_checkout
+from .evaluator import (
+    evaluate_blocked_payment,
+    evaluate_connection_pressure,
+    evaluate_slow_checkout,
+)
+from .lab import (
+    LabCredentials,
+    provision_blocked_payment,
+    provision_connection_pressure,
+    provision_slow_checkout,
+)
 
 Provisioner = Callable[[str], Awaitable[LabCredentials]]
 Evaluator = Callable[[str], Awaitable[dict]]
@@ -22,11 +31,13 @@ class ScenarioRuntime:
 PROVISIONERS: dict[str, Provisioner] = {
     "slow_checkout": provision_slow_checkout,
     "blocked_payment": provision_blocked_payment,
+    "connection_pressure": provision_connection_pressure,
 }
 
 EVALUATORS: dict[str, Evaluator] = {
     "slow_checkout": evaluate_slow_checkout,
     "blocked_payment": evaluate_blocked_payment,
+    "connection_pressure": evaluate_connection_pressure,
 }
 
 
