@@ -1,0 +1,78 @@
+{
+  "slug": "connection-pool-exhaustion",
+  "track_slug": "postgresql-dba",
+  "title": "Connection Pool Exhaustion",
+  "level": "intermediate",
+  "duration_minutes": 30,
+  "summary": "A runaway application pool opened far more PostgreSQL sessions than expected and is consuming connection capacity.",
+  "incident": "16:40 — New API requests intermittently fail to obtain a database connection. The checkout service has accumulated an abnormal number of idle sessions. Identify the offending pool, reduce connection pressure safely, and verify the database can still accept fresh work.",
+  "objectives": [
+    "Inspect pg_stat_activity and group sessions by application_name/state.",
+    "Identify the runaway checkout API pool.",
+    "Reduce unnecessary sessions without damaging application data.",
+    "Verify healthy connection capacity remains available."
+  ],
+  "hints": [
+    "Group pg_stat_activity by application_name and state before killing anything.",
+    "The abnormal sessions all share the same application_name.",
+    "The target is to leave a small healthy pool rather than terminate every database session indiscriminately."
+  ],
+  "provisioning": {
+    "setup_sql": [
+      "CREATE TABLE service_config (id INTEGER PRIMARY KEY, service_name TEXT NOT NULL, expected_pool_size INTEGER NOT NULL CHECK (expected_pool_size > 0)); CREATE TABLE incident_notes (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT NOT NULL); INSERT INTO service_config(id, service_name, expected_pool_size) VALUES (1, 'checkout-api', 3); INSERT INTO incident_notes(note) VALUES ('The checkout API normally keeps no more than three idle database sessions.'), ('The incident was triggered by a runaway application connection pool.'), ('Do not terminate unrelated administrative or learner sessions.');"
+    ],
+    "learner": {
+      "statements": [
+        "GRANT SELECT ON service_config, incident_notes TO {learner}",
+        "GRANT pg_signal_backend TO {learner}",
+        "GRANT pg_read_all_stats TO {learner}"
+      ]
+    },
+    "roles": [
+      {
+        "alias": "pool",
+        "prefix": "pool",
+        "statements": ["GRANT CONNECT ON DATABASE {database} TO {role}"]
+      }
+    ],
+    "faults": [
+      {
+        "type": "connection_pool",
+        "role": "pool",
+        "application_name": "checkout-api-pool",
+        "count": 12,
+        "warmup_sql": "SELECT 1"
+      }
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      {
+        "type": "session_count",
+        "name": "Runaway checkout pool reduced",
+        "filters": {"application_name": "checkout-api-pool"},
+        "operator": "lte",
+        "expected": 3,
+        "points": 65,
+        "feedback": "The checkout API still has too many sessions. Identify only the checkout-api-pool backends and reduce the pool to three or fewer."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Service configuration preserved",
+        "sql": "SELECT expected_pool_size FROM service_config WHERE id = 1 AND service_name = 'checkout-api'",
+        "expected": 3,
+        "points": 20,
+        "feedback": "The incident should be mitigated by handling database sessions, not by deleting or corrupting the service configuration."
+      },
+      {
+        "type": "scalar_equals",
+        "name": "Database remains responsive",
+        "sql": "SELECT 1",
+        "expected": 1,
+        "points": 15,
+        "feedback": "The database is not responding normally after the attempted mitigation."
+      }
+    ],
+    "success_feedback": "Connection pressure is back within the expected pool size, configuration is intact, and the database remains responsive."
+  }
+}
