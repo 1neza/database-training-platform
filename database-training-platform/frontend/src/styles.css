@@ -25,7 +25,7 @@ button {
   font-weight: 700;
 }
 
-button:disabled { opacity: .55; cursor: wait; }
+button:disabled { opacity: .55; cursor: not-allowed; }
 button.secondary { background: transparent; color: #151515; border: 1px solid #bbb; }
 
 .shell {
@@ -77,6 +77,59 @@ h3 { margin: 5px 0 10px; font-size: 22px; letter-spacing: -0.025em; }
   white-space: nowrap;
 }
 
+.progressPanel {
+  background: white;
+  border: 1px solid #deded8;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.04);
+  margin-bottom: 34px;
+}
+
+.progressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.stat {
+  background: #f4f4f0;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.stat strong { font-size: 30px; letter-spacing: -0.04em; }
+.stat span { font-size: 12px; color: #666; }
+
+.skillStrip { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.skillStrip span { background: #ecece7; border-radius: 999px; padding: 7px 10px; font-size: 12px; text-transform: capitalize; }
+
+.history { margin-top: 24px; }
+.historyRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 13px 0;
+  border-top: 1px solid #ecece7;
+}
+.historyRow > div:first-child { display: grid; gap: 3px; }
+.historyRow span { font-size: 12px; color: #666; }
+.historyResult { display: flex; align-items: center; gap: 12px; }
+.status { text-transform: uppercase; font-weight: 800; letter-spacing: .06em; }
+.status.passed { color: #245b35; }
+.status.failed, .status.expired { color: #7b3d30; }
+
 .catalogHeader {
   display: flex;
   justify-content: space-between;
@@ -94,7 +147,7 @@ h3 { margin: 5px 0 10px; font-size: 22px; letter-spacing: -0.025em; }
 }
 
 .scenarioCard {
-  min-height: 270px;
+  min-height: 290px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -106,7 +159,7 @@ h3 { margin: 5px 0 10px; font-size: 22px; letter-spacing: -0.025em; }
   border: 1px solid #d7d7d1;
   border-radius: 18px;
   padding: 20px;
-  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease, opacity .15s ease;
 }
 
 .scenarioCard:hover {
@@ -121,9 +174,35 @@ h3 { margin: 5px 0 10px; font-size: 22px; letter-spacing: -0.025em; }
   box-shadow: 0 12px 30px rgba(0,0,0,.08);
 }
 
+.scenarioCard.locked { background: #ededE8; opacity: .8; }
+.scenarioCard.completed { border-color: #aeb9ae; }
 .scenarioCard p:not(.eyebrow) { color: #60605b; line-height: 1.5; margin: 0; }
-.scenarioNumber { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #888; margin-bottom: 28px; }
+.scenarioTopline { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+.scenarioNumber { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #888; }
 .selectMarker { margin-top: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+
+.readiness {
+  border: 1px solid #bdbdb7;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.readiness.ready { background: #151515; color: white; border-color: #151515; }
+.readiness.completed { background: #dce8dc; border-color: #b4cbb4; }
+.readiness.locked { background: #e1e1dd; color: #666; }
+.missingSkills { font-size: 12px; margin-top: 10px !important; text-transform: capitalize; }
+
+.lockNotice {
+  margin: 18px 0;
+  border: 1px solid #c9c9c3;
+  background: #f0f0eb;
+  border-radius: 12px;
+  padding: 14px;
+}
+.lockNotice p { margin: 5px 0 0; color: #666; text-transform: capitalize; }
 
 .grid {
   display: grid;
@@ -181,10 +260,12 @@ li { margin: 9px 0; line-height: 1.45; }
 @media (max-width: 900px) {
   .scenarioGrid { grid-template-columns: 1fr; }
   .scenarioCard { min-height: auto; }
+  .statGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 780px) {
   .grid { grid-template-columns: 1fr; }
-  .hero, .incident, .catalogHeader { flex-direction: column; align-items: flex-start; }
+  .hero, .incident, .catalogHeader, .progressHeader, .historyRow { flex-direction: column; align-items: flex-start; }
   .incidentControls, .timer { width: 100%; }
+  .statGrid { grid-template-columns: 1fr 1fr; }
 }
