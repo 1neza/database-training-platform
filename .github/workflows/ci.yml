@@ -49,6 +49,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
 
+      - name: Validate scenario files
+        run: python -m app.validate_scenarios
+
       - name: Compile backend
         run: python -m compileall app
 
