@@ -3,8 +3,8 @@ import asyncio
 import asyncpg
 
 from app.config import settings
-from app.lab import provision_connection_pressure, teardown_lab
-from app.scenario_engine import evaluate_scenario
+from app.lab import teardown_lab
+from app.scenario_engine import evaluate_scenario, provision_scenario
 
 
 def test_connection_pressure_lab_can_be_diagnosed_and_recovered():
@@ -12,7 +12,7 @@ def test_connection_pressure_lab_can_be_diagnosed_and_recovered():
 
 
 async def _exercise_connection_pressure_lab():
-    creds = await provision_connection_pressure("ci003")
+    creds = await provision_scenario("connection-pool-exhaustion", "ci003")
 
     try:
         before = await evaluate_scenario("connection-pool-exhaustion", creds.database)
