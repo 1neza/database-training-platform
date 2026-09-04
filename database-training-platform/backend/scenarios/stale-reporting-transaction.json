@@ -1,9 +1,10 @@
 {
   "slug": "stale-reporting-transaction",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "track_slug": "postgresql-dba",
   "title": "Stale Reporting Transaction",
   "level": "intermediate",
+  "difficulty": 2,
   "skills": ["postgresql.activity-monitoring", "postgresql.transaction-basics", "postgresql.safe-operations"],
   "prerequisites": [],
   "duration_minutes": 30,
