@@ -19,6 +19,7 @@ def _valid_scenario(slug: str) -> dict:
         "track_slug": "postgresql-dba",
         "title": "Validation Fixture",
         "level": "beginner",
+        "difficulty": 2,
         "skills": ["postgresql.safe-operations"],
         "prerequisites": [],
         "duration_minutes": 10,
@@ -51,6 +52,7 @@ def test_every_catalog_scenario_has_valid_metadata_provisioning_and_evaluation()
     for slug, scenario in SCENARIOS.items():
         assert get_scenario_definition(slug) is scenario
         assert "version" in scenario
+        assert 1 <= scenario["difficulty"] <= 5
         assert scenario["skills"]
         assert "prerequisites" in scenario
         assert "provisioning" in scenario
@@ -77,6 +79,15 @@ def test_invalid_version_fails_catalog_validation(monkeypatch):
     monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
 
     with pytest.raises(ScenarioConfigurationError, match="MAJOR.MINOR.PATCH"):
+        validate_scenario_catalog()
+
+
+def test_invalid_difficulty_fails_catalog_validation(monkeypatch):
+    scenario = _valid_scenario("broken-difficulty")
+    scenario["difficulty"] = 6
+    monkeypatch.setitem(SCENARIOS, scenario["slug"], scenario)
+
+    with pytest.raises(ScenarioConfigurationError, match="difficulty"):
         validate_scenario_catalog()
 
 
