@@ -1,8 +1,8 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,3 +31,31 @@ class TrainingSession(Base):
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class LearnerProfile(Base):
+    __tablename__ = "learner_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(String(120), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class LearnerAttemptLink(Base):
+    __tablename__ = "learner_attempt_links"
+    __table_args__ = (
+        UniqueConstraint("session_id", name="uq_learner_attempt_links_session_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    learner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("learner_profiles.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("training_sessions.id", ondelete="CASCADE"), index=True
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
