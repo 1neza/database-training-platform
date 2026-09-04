@@ -1,7 +1,12 @@
+import re
+
 from .catalog import SCENARIOS, TRACKS
 from .evaluation_engine import evaluate_checks, validate_evaluation_spec
 from .lab import LabCredentials
 from .provisioning_engine import provision_from_spec, validate_provisioning_spec
+
+
+_SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 class ScenarioConfigurationError(RuntimeError):
@@ -34,8 +39,13 @@ def validate_scenario_metadata(scenario_slug: str, scenario: dict) -> None:
             f"Scenario catalog key {scenario_slug!r} does not match its slug"
         )
 
-    for field in ("slug", "track_slug", "title", "level", "summary", "incident"):
+    for field in ("slug", "version", "track_slug", "title", "level", "summary", "incident"):
         _require_nonempty_string(scenario_slug, scenario, field)
+
+    if not _SEMVER.fullmatch(scenario["version"]):
+        raise ScenarioConfigurationError(
+            f"Scenario {scenario_slug!r} version must use MAJOR.MINOR.PATCH"
+        )
 
     duration = scenario.get("duration_minutes")
     if not isinstance(duration, int) or duration <= 0:
