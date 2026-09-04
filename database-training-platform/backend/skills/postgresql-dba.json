@@ -1,6 +1,6 @@
 {
   "track_slug": "postgresql-dba",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "skills": [
     {"slug": "postgresql.activity-monitoring", "name": "Activity Monitoring", "description": "Inspect pg_stat_activity and related runtime state to diagnose active database behavior.", "prerequisites": []},
     {"slug": "postgresql.transaction-basics", "name": "Transaction Basics", "description": "Understand transaction states, boundaries, commit/rollback behavior, and long-lived transactions.", "prerequisites": []},
@@ -9,6 +9,7 @@
     {"slug": "postgresql.query-plans", "name": "Query Plans", "description": "Read PostgreSQL execution plans and identify costly access paths.", "prerequisites": []},
     {"slug": "postgresql.indexing", "name": "Indexing", "description": "Design indexes that match real filter, sort, and access patterns.", "prerequisites": ["postgresql.query-plans"]},
     {"slug": "postgresql.connection-management", "name": "Connection Management", "description": "Diagnose connection pressure, application pools, and safe backend termination.", "prerequisites": ["postgresql.activity-monitoring"]},
+    {"slug": "postgresql.roles-privileges", "name": "Roles and Privileges", "description": "Audit PostgreSQL role access and enforce least privilege without breaking required application capabilities.", "prerequisites": ["postgresql.safe-operations"]},
     {"slug": "postgresql.safe-operations", "name": "Safe Database Operations", "description": "Resolve incidents without destructive shortcuts or corrupting production-style data.", "prerequisites": []}
   ]
 }
